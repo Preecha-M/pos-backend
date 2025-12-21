@@ -6,7 +6,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('employees')
 @UseGuards(AuthGuard, RolesGuard)
-@Roles('Admin', 'Manager')
+@Roles('Admin')
 export class EmployeesController {
   constructor(private readonly service: EmployeesService) {}
 
