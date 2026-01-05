@@ -10,7 +10,7 @@ import { Roles } from 'src/auth/decorators/roles.decorator';
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
-  @Get("summary")
+  @Get("/summary")
   summary(@Query() q: any) {
     return this.dashboardService.summary(q);
   }
