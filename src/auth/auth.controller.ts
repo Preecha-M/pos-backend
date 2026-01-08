@@ -30,7 +30,7 @@ export class AuthController {
 
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('accessToken');
+    res.clearCookie('accessToken', this.auth.cookieOptions());
     return { message: 'Logout successfully.' };
   }
 

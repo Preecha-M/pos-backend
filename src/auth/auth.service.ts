@@ -5,6 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
 import { PG_POOL } from 'src/common/db/db.module';
 import type { SignOptions } from 'jsonwebtoken';
+import path from 'path';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +24,7 @@ export class AuthService {
       httpOnly: true,
       secure,
       sameSite,
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     };
   }
