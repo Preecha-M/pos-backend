@@ -12,6 +12,12 @@ export class MembersController {
     return this.service.search(phone || '');
   }
 
+  @Get('phone/:phone')
+  getByPhone(@Param('phone') phone: string) {
+  return this.service.search(phone);
+}
+
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.service.getById(Number(id));

@@ -1,4 +1,9 @@
-import { Inject, Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Pool } from 'pg';
 import { PG_POOL } from '../common/db/db.module';
 
@@ -8,8 +13,15 @@ export class SalesService {
 
   async create(user: any, body: any) {
     const employee_id = user.employee_id;
-    const { member_id, promotion_id, payment_method, discount_amount, items } = body || {};
+    const {
+      member_id,
+      promotion_id,
+      payment_method,
+      discount_amount,
+      items,
+    } = body || {};
 
+    /* ---------- 1. Validate ---------- */
     if (!Array.isArray(items) || items.length === 0) {
       throw new BadRequestException('items required');
     }
@@ -18,32 +30,60 @@ export class SalesService {
     try {
       await client.query('BEGIN');
 
-      const menuIds = items.map((i: any) => Number(i.menu_id)).filter(Number.isFinite);
+      /* ---------- 2. Load menu prices ---------- */
+      const menuIds = items
+        .map((i: any) => Number(i.menu_id))
+        .filter(Number.isFinite);
+
       const menusRes = await client.query(
         `SELECT menu_id, price FROM menu WHERE menu_id = ANY($1::int[])`,
         [menuIds],
       );
+
       const priceMap = new Map<number, number>(
-        menusRes.rows.map((m: any) => [m.menu_id, Number(m.price)]),
+        menusRes.rows.map((m) => [m.menu_id, Number(m.price)]),
       );
 
+      /* ---------- 3. Prepare sale items ---------- */
       let subtotal = 0;
-      const prepared = items.map((it: any) => {
-        const q = Number(it.quantity || 0);
-        const unit =
+
+      const preparedItems = items.map((it: any) => {
+        const quantity = Number(it.quantity || 0);
+        if (quantity <= 0) {
+          throw new BadRequestException('quantity must be greater than 0');
+        }
+
+        const unit_price =
           it.unit_price !== undefined
             ? Number(it.unit_price)
-            : Number(priceMap.get(Number(it.menu_id)) || 0);
-        subtotal += unit * q;
-        return { menu_id: Number(it.menu_id), quantity: q, unit_price: unit };
+            : priceMap.get(Number(it.menu_id)) ?? 0;
+
+        if (unit_price <= 0) {
+          throw new BadRequestException('invalid unit_price');
+        }
+
+        subtotal += unit_price * quantity;
+
+        return {
+          menu_id: Number(it.menu_id),
+          quantity,
+          unit_price,
+        };
       });
 
-      const discount = discount_amount !== undefined ? Number(discount_amount) : 0;
+      /* ---------- 4. Calculate totals ---------- */
+      const discount = Number(discount_amount || 0);
       const net_total = subtotal - discount;
 
+      if (net_total < 0) {
+        throw new BadRequestException('net_total cannot be negative');
+      }
+
+      /* ---------- 5. Insert SALE ---------- */
       const saleRes = await client.query(
         `INSERT INTO sale
-          (subtotal, discount_amount, net_total, payment_method, employee_id, member_id, promotion_id)
+          (subtotal, discount_amount, net_total, payment_method,
+           employee_id, member_id, promotion_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7)
          RETURNING *`,
         [
@@ -56,77 +96,100 @@ export class SalesService {
           promotion_id ?? null,
         ],
       );
+
       const sale = saleRes.rows[0];
 
-      for (const it of prepared) {
+      /* ---------- 6. Insert SALE_ITEM ---------- */
+      for (const it of preparedItems) {
         await client.query(
-          `INSERT INTO sale_item (sale_id, menu_id, quantity, unit_price)
+          `INSERT INTO sale_item
+            (sale_id, menu_id, quantity, unit_price)
            VALUES ($1,$2,$3,$4)`,
           [sale.sale_id, it.menu_id, it.quantity, it.unit_price],
         );
       }
 
+      /* ---------- 7. Add MEMBER points ---------- */
       if (member_id) {
-        const addPoints = prepared.reduce((s: number, it: any) => s + Number(it.quantity || 0), 0);
-        await client.query(
-          `UPDATE member SET points = COALESCE(points,0) + $1 WHERE member_id=$2`,
-          [addPoints, member_id],
-        );
+        // กติกาแต้ม: ทุก 100 บาท = 1 แต้ม
+        const earnedPoints = Math.floor(net_total / 100);
+
+        if (earnedPoints > 0) {
+          await client.query(
+            `UPDATE member
+             SET points = COALESCE(points, 0) + $1
+             WHERE member_id = $2`,
+            [earnedPoints, member_id],
+          );
+        }
       }
 
       await client.query('COMMIT');
-      return { ...sale, items: prepared };
-    } catch (e) {
+      return { ...sale, items: preparedItems };
+    } catch (error) {
       await client.query('ROLLBACK');
-      throw e;
+      throw error;
     } finally {
       client.release();
     }
   }
 
+  /* ================== LIST ================== */
+
   async list() {
     const salesRes = await this.pool.query(
-      `SELECT s.*, e.username AS employee_username, m.name AS member_name, p.promotion_name
+      `SELECT s.*, e.username AS employee_username,
+              m.name AS member_name, p.promotion_name
        FROM sale s
-       LEFT JOIN employee e ON e.employee_id=s.employee_id
-       LEFT JOIN member m ON m.member_id=s.member_id
-       LEFT JOIN promotion p ON p.promotion_id=s.promotion_id
+       LEFT JOIN employee e ON e.employee_id = s.employee_id
+       LEFT JOIN member m ON m.member_id = s.member_id
+       LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
        ORDER BY s.sale_id DESC`,
     );
 
     const itemsRes = await this.pool.query(
       `SELECT si.*, mn.menu_name
        FROM sale_item si
-       LEFT JOIN menu mn ON mn.menu_id=si.menu_id
+       LEFT JOIN menu mn ON mn.menu_id = si.menu_id
        ORDER BY si.sale_item_id ASC`,
     );
 
     const map = new Map<number, any>();
-    for (const s of salesRes.rows) map.set(s.sale_id, { ...s, items: [] });
+    for (const s of salesRes.rows) {
+      map.set(s.sale_id, { ...s, items: [] });
+    }
+
     for (const it of itemsRes.rows) {
       const holder = map.get(it.sale_id);
       if (holder) holder.items.push(it);
     }
+
     return [...map.values()];
   }
 
+  /* ================== GET BY ID ================== */
+
   async getById(id: number) {
     const saleRes = await this.pool.query(
-      `SELECT s.*, e.username AS employee_username, m.name AS member_name, p.promotion_name
+      `SELECT s.*, e.username AS employee_username,
+              m.name AS member_name, p.promotion_name
        FROM sale s
-       LEFT JOIN employee e ON e.employee_id=s.employee_id
-       LEFT JOIN member m ON m.member_id=s.member_id
-       LEFT JOIN promotion p ON p.promotion_id=s.promotion_id
-       WHERE s.sale_id=$1`,
+       LEFT JOIN employee e ON e.employee_id = s.employee_id
+       LEFT JOIN member m ON m.member_id = s.member_id
+       LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
+       WHERE s.sale_id = $1`,
       [id],
     );
-    if (!saleRes.rows[0]) throw new NotFoundException('Sale not found');
+
+    if (!saleRes.rows[0]) {
+      throw new NotFoundException('Sale not found');
+    }
 
     const itemsRes = await this.pool.query(
       `SELECT si.*, mn.menu_name
        FROM sale_item si
-       LEFT JOIN menu mn ON mn.menu_id=si.menu_id
-       WHERE si.sale_id=$1
+       LEFT JOIN menu mn ON mn.menu_id = si.menu_id
+       WHERE si.sale_id = $1
        ORDER BY si.sale_item_id ASC`,
       [id],
     );
@@ -134,14 +197,23 @@ export class SalesService {
     return { ...saleRes.rows[0], items: itemsRes.rows };
   }
 
+  /* ================== REMOVE ================== */
+
   async remove(id: number) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query(`DELETE FROM sale_item WHERE sale_id=$1`, [id]);
-      const { rowCount } = await client.query(`DELETE FROM sale WHERE sale_id=$1`, [id]);
+      await client.query(`DELETE FROM sale_item WHERE sale_id = $1`, [id]);
+      const { rowCount } = await client.query(
+        `DELETE FROM sale WHERE sale_id = $1`,
+        [id],
+      );
       await client.query('COMMIT');
-      if (!rowCount) throw new NotFoundException('Sale not found');
+
+      if (!rowCount) {
+        throw new NotFoundException('Sale not found');
+      }
+
       return { message: 'Cancelled (deleted)' };
     } catch (e) {
       await client.query('ROLLBACK');

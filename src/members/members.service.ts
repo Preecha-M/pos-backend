@@ -23,14 +23,31 @@ export class MembersService {
     return rows[0];
   }
 
-  create(body: any) {
-    return this.pool.query(
-      `INSERT INTO member (name, gender, phone, points)
-       VALUES ($1,$2,$3,COALESCE($4,0))
-       RETURNING *`,
-      [body.name || null, body.gender || null, body.phone || null, body.points ?? null],
-    ).then(r => r.rows[0]);
+  async create(body: any) {
+  if (!body.name || !body.phone) {
+    throw new BadRequestException('name and phone are required');
   }
+
+  const exists = await this.pool.query(
+    `SELECT 1 FROM member WHERE phone=$1`,
+    [body.phone],
+  );
+
+  if (exists.rowCount > 0) {
+    throw new BadRequestException('Phone already exists');
+  }
+
+  const { rows } = await this.pool.query(
+    `INSERT INTO member (name, gender, phone, points)
+     VALUES ($1,$2,$3,0)
+     RETURNING *`,
+    [body.name, body.gender ?? null, body.phone],
+  );
+
+  return rows[0];
+}
+
+
 
   async update(id: number, body: any) {
     const { rowCount, rows } = await this.pool.query(
@@ -52,4 +69,21 @@ export class MembersService {
     if (!rowCount) throw new NotFoundException('Member not found');
     return { message: 'Deleted' };
   }
+  async addPoints(memberId: number, amount: number) {
+  if (!memberId) return null;
+
+  const points = Math.floor(amount / 100); // 100 บาท = 1 แต้ม
+  if (points <= 0) return null;
+
+  const { rows } = await this.pool.query(
+    `UPDATE member
+     SET points = points + $1
+     WHERE member_id = $2
+     RETURNING *`,
+    [points, memberId],
+  );
+
+  return rows[0];
+}
+
 }
