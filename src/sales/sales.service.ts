@@ -18,10 +18,10 @@ export class SalesService {
       promotion_id,
       payment_method,
       discount_amount,
+      cash_received,
       items,
     } = body || {};
 
-    /* ---------- 1. Validate ---------- */
     if (!Array.isArray(items) || items.length === 0) {
       throw new BadRequestException('items required');
     }
@@ -30,7 +30,7 @@ export class SalesService {
     try {
       await client.query('BEGIN');
 
-      /* ---------- 2. Load menu prices ---------- */
+      /* ---------- Load menu prices ---------- */
       const menuIds = items
         .map((i: any) => Number(i.menu_id))
         .filter(Number.isFinite);
@@ -44,7 +44,7 @@ export class SalesService {
         menusRes.rows.map((m) => [m.menu_id, Number(m.price)]),
       );
 
-      /* ---------- 3. Prepare sale items ---------- */
+      /* ---------- Prepare items ---------- */
       let subtotal = 0;
 
       const preparedItems = items.map((it: any) => {
@@ -53,12 +53,8 @@ export class SalesService {
           throw new BadRequestException('quantity must be greater than 0');
         }
 
-        const unit_price =
-          it.unit_price !== undefined
-            ? Number(it.unit_price)
-            : priceMap.get(Number(it.menu_id)) ?? 0;
-
-        if (unit_price <= 0) {
+        const unit_price = priceMap.get(Number(it.menu_id));
+        if (!unit_price || unit_price <= 0) {
           throw new BadRequestException('invalid unit_price');
         }
 
@@ -71,7 +67,7 @@ export class SalesService {
         };
       });
 
-      /* ---------- 4. Calculate totals ---------- */
+      /* ---------- Totals ---------- */
       const discount = Number(discount_amount || 0);
       const net_total = subtotal - discount;
 
@@ -79,18 +75,40 @@ export class SalesService {
         throw new BadRequestException('net_total cannot be negative');
       }
 
-      /* ---------- 5. Insert SALE ---------- */
+      /* ---------- Cash handling ---------- */
+      let change_amount: number | null = null;
+
+      if ((payment_method || 'Cash') === 'Cash') {
+        const cash = Number(cash_received);
+
+        if (!Number.isFinite(cash)) {
+          throw new BadRequestException(
+            'cash_received is required for Cash payment',
+          );
+        }
+
+        if (cash < net_total) {
+          throw new BadRequestException('cash_received is less than net_total');
+        }
+
+        change_amount = cash - net_total;
+      }
+
+      /* ---------- Insert SALE ---------- */
       const saleRes = await client.query(
         `INSERT INTO sale
-          (subtotal, discount_amount, net_total, payment_method,
-           employee_id, member_id, promotion_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         RETURNING *`,
+        (subtotal, discount_amount, net_total, payment_method,
+         cash_received, change_amount,
+         employee_id, member_id, promotion_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING *`,
         [
           subtotal,
           discount,
           net_total,
           payment_method || 'Cash',
+          payment_method === 'Cash' ? cash_received : null,
+          change_amount,
           employee_id,
           member_id ?? null,
           promotion_id ?? null,
@@ -99,26 +117,24 @@ export class SalesService {
 
       const sale = saleRes.rows[0];
 
-      /* ---------- 6. Insert SALE_ITEM ---------- */
+      /* ---------- Insert SALE_ITEM ---------- */
       for (const it of preparedItems) {
         await client.query(
           `INSERT INTO sale_item
-            (sale_id, menu_id, quantity, unit_price)
-           VALUES ($1,$2,$3,$4)`,
+          (sale_id, menu_id, quantity, unit_price)
+         VALUES ($1,$2,$3,$4)`,
           [sale.sale_id, it.menu_id, it.quantity, it.unit_price],
         );
       }
 
-      /* ---------- 7. Add MEMBER points ---------- */
+      /* ---------- Member points ---------- */
       if (member_id) {
-        // กติกาแต้ม: ทุก 100 บาท = 1 แต้ม
         const earnedPoints = Math.floor(net_total / 100);
-
         if (earnedPoints > 0) {
           await client.query(
             `UPDATE member
-             SET points = COALESCE(points, 0) + $1
-             WHERE member_id = $2`,
+           SET points = COALESCE(points, 0) + $1
+           WHERE member_id = $2`,
             [earnedPoints, member_id],
           );
         }
@@ -126,9 +142,9 @@ export class SalesService {
 
       await client.query('COMMIT');
       return { ...sale, items: preparedItems };
-    } catch (error) {
+    } catch (e) {
       await client.query('ROLLBACK');
-      throw error;
+      throw e;
     } finally {
       client.release();
     }
@@ -167,60 +183,58 @@ export class SalesService {
   //   return [...map.values()];
   // }
 
-async list(query: any) {
-  const conditions: string[] = [];
-  const values: any[] = [];
-  let idx = 1;
+  async list(query: any) {
+    const conditions: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
 
-  const { mode, month } = query || {};
+    const { mode, month } = query || {};
 
-  /* ================== VALIDATE MODE ================== */
-  const allowedModes = ['month', 'year', 'custom'];
-  if (mode && !allowedModes.includes(mode)) {
-    throw new BadRequestException(
-      `Invalid mode. Allowed: ${allowedModes.join(', ')}`,
-    );
-  }
-
-  /* ================== DATE FILTER ================== */
-
-  if (mode === 'month') {
-    conditions.push(
-      `date_trunc('month', s.sale_datetime) = date_trunc('month', now())`,
-    );
-  }
-
-  if (mode === 'year') {
-    conditions.push(
-      `date_trunc('year', s.sale_datetime) = date_trunc('year', now())`,
-    );
-  }
-
-  if (mode === 'custom') {
-    if (!month) {
-      throw new BadRequestException('month is required when mode=custom');
-    }
-
-    // month ต้องเป็น YYYY-MM
-    if (!/^\d{4}-\d{2}$/.test(month)) {
+    /* ================== VALIDATE MODE ================== */
+    const allowedModes = ['month', 'year', 'custom'];
+    if (mode && !allowedModes.includes(mode)) {
       throw new BadRequestException(
-        'Invalid month format. Expected YYYY-MM',
+        `Invalid mode. Allowed: ${allowedModes.join(', ')}`,
       );
     }
 
-    conditions.push(
-      `date_trunc('month', s.sale_datetime) = date_trunc('month', $${idx}::date)`,
-    );
-    values.push(`${month}-01`);
-    idx++;
-  }
+    /* ================== DATE FILTER ================== */
 
-  const whereClause =
-    conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    if (mode === 'month') {
+      conditions.push(
+        `date_trunc('month', s.sale_datetime) = date_trunc('month', now())`,
+      );
+    }
 
-  /* ================== SALES ================== */
-  const salesRes = await this.pool.query(
-    `
+    if (mode === 'year') {
+      conditions.push(
+        `date_trunc('year', s.sale_datetime) = date_trunc('year', now())`,
+      );
+    }
+
+    if (mode === 'custom') {
+      if (!month) {
+        throw new BadRequestException('month is required when mode=custom');
+      }
+
+      // month ต้องเป็น YYYY-MM
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        throw new BadRequestException('Invalid month format. Expected YYYY-MM');
+      }
+
+      conditions.push(
+        `date_trunc('month', s.sale_datetime) = date_trunc('month', $${idx}::date)`,
+      );
+      values.push(`${month}-01`);
+      idx++;
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    /* ================== SALES ================== */
+    const salesRes = await this.pool.query(
+      `
     SELECT s.*,
            e.username AS employee_username,
            m.name AS member_name,
@@ -232,33 +246,32 @@ async list(query: any) {
     ${whereClause}
     ORDER BY s.sale_datetime DESC
     `,
-    values,
-  );
+      values,
+    );
 
-  /* ================== ITEMS ================== */
-  const itemsRes = await this.pool.query(
-    `
+    /* ================== ITEMS ================== */
+    const itemsRes = await this.pool.query(
+      `
     SELECT si.*, mn.menu_name
     FROM sale_item si
     LEFT JOIN menu mn ON mn.menu_id = si.menu_id
     ORDER BY si.sale_item_id ASC
     `,
-  );
+    );
 
-  /* ================== MERGE ================== */
-  const map = new Map<number, any>();
-  for (const s of salesRes.rows) {
-    map.set(s.sale_id, { ...s, items: [] });
+    /* ================== MERGE ================== */
+    const map = new Map<number, any>();
+    for (const s of salesRes.rows) {
+      map.set(s.sale_id, { ...s, items: [] });
+    }
+
+    for (const it of itemsRes.rows) {
+      const holder = map.get(it.sale_id);
+      if (holder) holder.items.push(it);
+    }
+
+    return [...map.values()];
   }
-
-  for (const it of itemsRes.rows) {
-    const holder = map.get(it.sale_id);
-    if (holder) holder.items.push(it);
-  }
-
-  return [...map.values()];
-}
-
 
   /* ================== GET BY ID ================== */
 
