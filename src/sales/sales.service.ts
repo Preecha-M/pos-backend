@@ -136,36 +136,129 @@ export class SalesService {
 
   /* ================== LIST ================== */
 
-  async list() {
-    const salesRes = await this.pool.query(
-      `SELECT s.*, e.username AS employee_username,
-              m.name AS member_name, p.promotion_name
-       FROM sale s
-       LEFT JOIN employee e ON e.employee_id = s.employee_id
-       LEFT JOIN member m ON m.member_id = s.member_id
-       LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
-       ORDER BY s.sale_id DESC`,
+  // async list(query: any) {
+  //   const salesRes = await this.pool.query(
+  //     `SELECT s.*, e.username AS employee_username,
+  //             m.name AS member_name, p.promotion_name
+  //      FROM sale s
+  //      LEFT JOIN employee e ON e.employee_id = s.employee_id
+  //      LEFT JOIN member m ON m.member_id = s.member_id
+  //      LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
+  //      ORDER BY s.sale_id DESC`,
+  //   );
+
+  //   const itemsRes = await this.pool.query(
+  //     `SELECT si.*, mn.menu_name
+  //      FROM sale_item si
+  //      LEFT JOIN menu mn ON mn.menu_id = si.menu_id
+  //      ORDER BY si.sale_item_id ASC`,
+  //   );
+
+  //   const map = new Map<number, any>();
+  //   for (const s of salesRes.rows) {
+  //     map.set(s.sale_id, { ...s, items: [] });
+  //   }
+
+  //   for (const it of itemsRes.rows) {
+  //     const holder = map.get(it.sale_id);
+  //     if (holder) holder.items.push(it);
+  //   }
+
+  //   return [...map.values()];
+  // }
+
+async list(query: any) {
+  const conditions: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  const { mode, month } = query || {};
+
+  /* ================== VALIDATE MODE ================== */
+  const allowedModes = ['month', 'year', 'custom'];
+  if (mode && !allowedModes.includes(mode)) {
+    throw new BadRequestException(
+      `Invalid mode. Allowed: ${allowedModes.join(', ')}`,
     );
-
-    const itemsRes = await this.pool.query(
-      `SELECT si.*, mn.menu_name
-       FROM sale_item si
-       LEFT JOIN menu mn ON mn.menu_id = si.menu_id
-       ORDER BY si.sale_item_id ASC`,
-    );
-
-    const map = new Map<number, any>();
-    for (const s of salesRes.rows) {
-      map.set(s.sale_id, { ...s, items: [] });
-    }
-
-    for (const it of itemsRes.rows) {
-      const holder = map.get(it.sale_id);
-      if (holder) holder.items.push(it);
-    }
-
-    return [...map.values()];
   }
+
+  /* ================== DATE FILTER ================== */
+
+  if (mode === 'month') {
+    conditions.push(
+      `date_trunc('month', s.sale_datetime) = date_trunc('month', now())`,
+    );
+  }
+
+  if (mode === 'year') {
+    conditions.push(
+      `date_trunc('year', s.sale_datetime) = date_trunc('year', now())`,
+    );
+  }
+
+  if (mode === 'custom') {
+    if (!month) {
+      throw new BadRequestException('month is required when mode=custom');
+    }
+
+    // month ต้องเป็น YYYY-MM
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException(
+        'Invalid month format. Expected YYYY-MM',
+      );
+    }
+
+    conditions.push(
+      `date_trunc('month', s.sale_datetime) = date_trunc('month', $${idx}::date)`,
+    );
+    values.push(`${month}-01`);
+    idx++;
+  }
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  /* ================== SALES ================== */
+  const salesRes = await this.pool.query(
+    `
+    SELECT s.*,
+           e.username AS employee_username,
+           m.name AS member_name,
+           p.promotion_name
+    FROM sale s
+    LEFT JOIN employee e ON e.employee_id = s.employee_id
+    LEFT JOIN member m ON m.member_id = s.member_id
+    LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
+    ${whereClause}
+    ORDER BY s.sale_datetime DESC
+    `,
+    values,
+  );
+
+  /* ================== ITEMS ================== */
+  const itemsRes = await this.pool.query(
+    `
+    SELECT si.*, mn.menu_name
+    FROM sale_item si
+    LEFT JOIN menu mn ON mn.menu_id = si.menu_id
+    ORDER BY si.sale_item_id ASC
+    `,
+  );
+
+  /* ================== MERGE ================== */
+  const map = new Map<number, any>();
+  for (const s of salesRes.rows) {
+    map.set(s.sale_id, { ...s, items: [] });
+  }
+
+  for (const it of itemsRes.rows) {
+    const holder = map.get(it.sale_id);
+    if (holder) holder.items.push(it);
+  }
+
+  return [...map.values()];
+}
+
 
   /* ================== GET BY ID ================== */
 

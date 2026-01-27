@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+  Query,
+} from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -15,8 +25,8 @@ export class SalesController {
   }
 
   @Get()
-  list() {
-    return this.service.list();
+  list(@Query() query: any) {
+    return this.service.list(query);
   }
 
   @Get(':id')
