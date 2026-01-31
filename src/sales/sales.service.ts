@@ -30,7 +30,6 @@ export class SalesService {
     try {
       await client.query('BEGIN');
 
-      /* ---------- Load menu prices ---------- */
       const menuIds = items
         .map((i: any) => Number(i.menu_id))
         .filter(Number.isFinite);
@@ -44,7 +43,6 @@ export class SalesService {
         menusRes.rows.map((m) => [m.menu_id, Number(m.price)]),
       );
 
-      /* ---------- Prepare items ---------- */
       let subtotal = 0;
 
       const preparedItems = items.map((it: any) => {
@@ -67,7 +65,6 @@ export class SalesService {
         };
       });
 
-      /* ---------- Totals ---------- */
       const discount = Number(discount_amount || 0);
       const net_total = subtotal - discount;
 
@@ -75,7 +72,6 @@ export class SalesService {
         throw new BadRequestException('net_total cannot be negative');
       }
 
-      /* ---------- Cash handling ---------- */
       let change_amount: number | null = null;
 
       if ((payment_method || 'Cash') === 'Cash') {
@@ -94,13 +90,24 @@ export class SalesService {
         change_amount = cash - net_total;
       }
 
-      /* ---------- Insert SALE ---------- */
+      let currentRoundId: number | null = null;
+      try {
+        const roundRes = await client.query(
+          `SELECT round_id FROM sales_round WHERE status = 'open' ORDER BY opened_at DESC LIMIT 1`,
+        );
+        if (roundRes.rows.length > 0) {
+          currentRoundId = roundRes.rows[0].round_id;
+        }
+      } catch (e) {
+        console.warn('Could not fetch current sales round:', e);
+      }
+
       const saleRes = await client.query(
         `INSERT INTO sale
         (subtotal, discount_amount, net_total, payment_method,
          cash_received, change_amount,
-         employee_id, member_id, promotion_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         employee_id, member_id, promotion_id, round_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
         [
           subtotal,
@@ -112,12 +119,12 @@ export class SalesService {
           employee_id,
           member_id ?? null,
           promotion_id ?? null,
+          currentRoundId,
         ],
       );
 
       const sale = saleRes.rows[0];
 
-      /* ---------- Insert SALE_ITEM ---------- */
       for (const it of preparedItems) {
         await client.query(
           `INSERT INTO sale_item
@@ -127,7 +134,6 @@ export class SalesService {
         );
       }
 
-      /* ---------- Member points ---------- */
       if (member_id) {
         const earnedPoints = Math.floor(net_total / 100);
         if (earnedPoints > 0) {
@@ -150,39 +156,7 @@ export class SalesService {
     }
   }
 
-  /* ================== LIST ================== */
-
-  // async list(query: any) {
-  //   const salesRes = await this.pool.query(
-  //     `SELECT s.*, e.username AS employee_username,
-  //             m.name AS member_name, p.promotion_name
-  //      FROM sale s
-  //      LEFT JOIN employee e ON e.employee_id = s.employee_id
-  //      LEFT JOIN member m ON m.member_id = s.member_id
-  //      LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
-  //      ORDER BY s.sale_id DESC`,
-  //   );
-
-  //   const itemsRes = await this.pool.query(
-  //     `SELECT si.*, mn.menu_name
-  //      FROM sale_item si
-  //      LEFT JOIN menu mn ON mn.menu_id = si.menu_id
-  //      ORDER BY si.sale_item_id ASC`,
-  //   );
-
-  //   const map = new Map<number, any>();
-  //   for (const s of salesRes.rows) {
-  //     map.set(s.sale_id, { ...s, items: [] });
-  //   }
-
-  //   for (const it of itemsRes.rows) {
-  //     const holder = map.get(it.sale_id);
-  //     if (holder) holder.items.push(it);
-  //   }
-
-  //   return [...map.values()];
-  // }
-
+  
   async list(query: any) {
     const conditions: string[] = [];
     const values: any[] = [];
@@ -190,7 +164,6 @@ export class SalesService {
 
     const { mode, month } = query || {};
 
-    /* ================== VALIDATE MODE ================== */
     const allowedModes = ['month', 'year', 'custom'];
     if (mode && !allowedModes.includes(mode)) {
       throw new BadRequestException(
@@ -198,7 +171,6 @@ export class SalesService {
       );
     }
 
-    /* ================== DATE FILTER ================== */
 
     if (mode === 'month') {
       conditions.push(
@@ -217,7 +189,6 @@ export class SalesService {
         throw new BadRequestException('month is required when mode=custom');
       }
 
-      // month ต้องเป็น YYYY-MM
       if (!/^\d{4}-\d{2}$/.test(month)) {
         throw new BadRequestException('Invalid month format. Expected YYYY-MM');
       }
@@ -232,7 +203,6 @@ export class SalesService {
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    /* ================== SALES ================== */
     const salesRes = await this.pool.query(
       `
     SELECT s.*,
@@ -249,7 +219,6 @@ export class SalesService {
       values,
     );
 
-    /* ================== ITEMS ================== */
     const itemsRes = await this.pool.query(
       `
     SELECT si.*, mn.menu_name
@@ -259,7 +228,6 @@ export class SalesService {
     `,
     );
 
-    /* ================== MERGE ================== */
     const map = new Map<number, any>();
     for (const s of salesRes.rows) {
       map.set(s.sale_id, { ...s, items: [] });
@@ -273,7 +241,6 @@ export class SalesService {
     return [...map.values()];
   }
 
-  /* ================== GET BY ID ================== */
 
   async getById(id: number) {
     const saleRes = await this.pool.query(
@@ -303,7 +270,6 @@ export class SalesService {
     return { ...saleRes.rows[0], items: itemsRes.rows };
   }
 
-  /* ================== REMOVE ================== */
 
   async remove(id: number) {
     const client = await this.pool.connect();
