@@ -18,12 +18,16 @@ export class AuthService {
       (this.config.get<string>('COOKIE_SECURE') || 'false') === 'true';
     const sameSite = (this.config.get<string>('COOKIE_SAMESITE') ||
       'lax') as any;
+    
+    // Default to 1 day if not specified
+    const maxAge = Number(this.config.get<string>('COOKIE_MAX_AGE_MS')) || 24 * 60 * 60 * 1000;
+    
     return {
       httpOnly: true,
       secure,
       sameSite,
       path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge,
     };
   }
 
