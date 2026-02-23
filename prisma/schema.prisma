@@ -82,6 +82,10 @@ model promotion {
   promotion_detail String?
   start_date       DateTime?        @db.Date
   end_date         DateTime?        @db.Date
+  discount_type    String?          @default("AMOUNT") @db.VarChar(50)
+  discount_value   Decimal?         @default(0) @db.Decimal(10, 2)
+  min_quantity     Int?             @default(1)
+  is_active        Boolean?         @default(true)
   promotion_menu   promotion_menu[]
   sale             sale[]
 }
