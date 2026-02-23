@@ -41,4 +41,12 @@ export class IngredientsController {
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
+
+  @Post(':id/withdraw')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('Admin', 'Manager')
+  withdraw(@Param('id') id: string, @Body() body: any) {
+    if (!body?.quantity) throw new BadRequestException('quantity required');
+    return this.service.withdraw(id, Number(body.quantity));
+  }
 }

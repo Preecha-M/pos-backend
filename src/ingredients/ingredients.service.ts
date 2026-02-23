@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { PG_POOL } from '../common/db/db.module';
 
@@ -73,5 +73,30 @@ export class IngredientsService {
        ORDER BY expire_date ASC`,
       [days],
     ).then(r => r.rows);
+  }
+
+  async withdraw(id: string, quantity: number) {
+    if (quantity <= 0) throw new BadRequestException('Quantity must be greater than 0');
+
+    // Check if ingredient exists and has enough quantity
+    const { rows, rowCount } = await this.pool.query(
+      `SELECT quantity_on_hand FROM ingredient WHERE ingredient_id=$1`,
+      [id]
+    );
+    if (!rowCount) throw new NotFoundException('Ingredient not found');
+
+    const currentQty = rows[0].quantity_on_hand || 0;
+    if (currentQty < quantity) {
+      throw new BadRequestException(`Not enough quantity. Current: ${currentQty}, Requested: ${quantity}`);
+    }
+
+    const updateRes = await this.pool.query(
+      `UPDATE ingredient
+       SET quantity_on_hand = quantity_on_hand - $1
+       WHERE ingredient_id=$2
+       RETURNING *`,
+      [quantity, id]
+    );
+    return updateRes.rows[0];
   }
 }

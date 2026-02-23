@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, Put, Param } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -18,5 +18,10 @@ export class OrdersController {
   @Post()
   create(@Body() body: any) {
     return this.service.create(body);
+  }
+
+  @Put(':id/status')
+  updateStatus(@Param('id') id: string, @Body() body: any) {
+    return this.service.updateStatus(Number(id), body.order_status);
   }
 }

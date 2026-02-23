@@ -1,4 +1,4 @@
-import { Inject, Injectable, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { PG_POOL } from '../common/db/db.module';
 
@@ -71,6 +71,47 @@ export class OrdersService {
 
       await client.query('COMMIT');
       return { ...order, items };
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateStatus(id: number, status: string) {
+    if (!status) throw new BadRequestException('status required');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const orderRes = await client.query(
+        `UPDATE purchase_order SET order_status=$1 WHERE order_id=$2 RETURNING *`,
+        [status, id]
+      );
+      if (!orderRes.rowCount) {
+        await client.query('ROLLBACK');
+        throw new NotFoundException('Order not found');
+      }
+      const order = orderRes.rows[0];
+
+      if (String(status).toLowerCase() === 'received') {
+        const itemsRes = await client.query(
+          `SELECT * FROM purchase_order_item WHERE order_id=$1`,
+          [id]
+        );
+        for (const it of itemsRes.rows) {
+          await client.query(
+            `UPDATE ingredient
+             SET quantity_on_hand = COALESCE(quantity_on_hand,0) + $1
+             WHERE ingredient_id=$2`,
+            [it.quantity, it.ingredient_id]
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+      return order;
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;

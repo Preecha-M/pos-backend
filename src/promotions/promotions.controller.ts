@@ -5,13 +5,25 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('promotions')
-@UseGuards(AuthGuard)
+// @UseGuards(AuthGuard)
 export class PromotionsController {
   constructor(private readonly service: PromotionsService) {}
 
   @Get()
   list() {
     return this.service.listActive();
+  }
+
+  @Get('all')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('Admin', 'Manager')
+  listAll() {
+    return this.service.listAll();
+  }
+
+  @Get('migrate')
+  migrate() {
+    return this.service.migrate();
   }
 
   @Post()
