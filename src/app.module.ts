@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { DbModule } from './common/db/db.module';
+
+import { PrismaModule } from './common/prisma/prisma.module';
 import { SupabaseModule } from './common/supabase/supabase.module';
 
 import { AuthModule } from './auth/auth.module';
@@ -18,11 +19,13 @@ import { OrdersModule } from './orders/orders.module';
 import { SalesModule } from './sales/sales.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SalesRoundModule } from './sales-round/sales-round.module';
+import { MenuOptionsModule } from './menu-options/menu-options.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    DbModule,
+
+    PrismaModule,
     SupabaseModule,
 
     HealthModule,
@@ -39,6 +42,7 @@ import { SalesRoundModule } from './sales-round/sales-round.module';
     SalesModule,
     DashboardModule,
     SalesRoundModule,
+    MenuOptionsModule,
   ],
 })
 export class AppModule {}

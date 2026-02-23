@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model employee {
+  employee_id                                 Int                     @id @default(autoincrement())
+  first_name_th                               String?                 @db.VarChar(100)
+  last_name_th                                String?                 @db.VarChar(100)
+  first_name_en                               String?                 @db.VarChar(100)
+  last_name_en                                String?                 @db.VarChar(100)
+  phone                                       String?                 @db.VarChar(20)
+  birth_date                                  DateTime?               @db.Date
+  education                                   String?                 @db.VarChar(255)
+  username                                    String?                 @unique @db.VarChar(50)
+  password                                    String?                 @db.VarChar(255)
+  role                                        String?                 @db.VarChar(50)
+  status                                      String?                 @db.VarChar(50)
+  inventory_transaction                       inventory_transaction[]
+  sale                                        sale[]
+  sales_round_sales_round_closed_byToemployee sales_round[]           @relation("sales_round_closed_byToemployee")
+  sales_round_sales_round_opened_byToemployee sales_round[]           @relation("sales_round_opened_byToemployee")
+}
+
+model ingredient {
+  ingredient_id         String                  @id @db.VarChar(50)
+  ingredient_name       String?                 @db.VarChar(200)
+  unit                  String?                 @db.VarChar(50)
+  cost_per_unit         Decimal?                @db.Decimal(10, 2)
+  quantity_on_hand      Int?
+  expire_date           DateTime?               @db.Date
+  category_code         String?                 @db.VarChar(50)
+  ingredient_category   ingredient_category?    @relation(fields: [category_code], references: [category_code], onDelete: NoAction, onUpdate: NoAction)
+  inventory_transaction inventory_transaction[]
+  purchase_order_item   purchase_order_item[]
+}
+
+model ingredient_category {
+  category_code String       @id @db.VarChar(50)
+  category_name String?      @db.VarChar(100)
+  ingredient    ingredient[]
+}
+
+model member {
+  member_id         Int                 @id @default(autoincrement())
+  name              String?             @db.VarChar(200)
+  gender            String?             @db.VarChar(20)
+  phone             String?             @db.VarChar(20)
+  points            Int?                @default(0)
+  point_transaction point_transaction[]
+  sale              sale[]
+}
+
+model menu {
+  menu_id        Int              @id @default(autoincrement())
+  menu_name      String?          @db.VarChar(200)
+  price          Decimal?         @db.Decimal(10, 2)
+  status         String?          @db.VarChar(50)
+  category_id    Int?
+  image_url      String?
+  pos_category   pos_category?    @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction)
+  promotion_menu promotion_menu[]
+  sale_item      sale_item[]
+}
+
+model pos_category {
+  category_id   Int      @id @default(autoincrement())
+  category_name String   @unique @db.VarChar(100)
+  icon          String?  @db.VarChar(50)
+  position      Int?     @default(1)
+  is_active     Boolean? @default(true)
+  menu          menu[]
+}
+
+model promotion {
+  promotion_id     Int              @id @default(autoincrement())
+  promotion_name   String?          @db.VarChar(200)
+  promotion_detail String?
+  start_date       DateTime?        @db.Date
+  end_date         DateTime?        @db.Date
+  promotion_menu   promotion_menu[]
+  sale             sale[]
+}
+
+model promotion_menu {
+  promotion_menu_id Int        @id @default(autoincrement())
+  promotion_id      Int?
+  menu_id           Int?
+  menu              menu?      @relation(fields: [menu_id], references: [menu_id], onDelete: NoAction, onUpdate: NoAction)
+  promotion         promotion? @relation(fields: [promotion_id], references: [promotion_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model purchase_order {
+  order_id            Int                   @id @default(autoincrement())
+  order_date          DateTime?             @default(dbgenerated("CURRENT_DATE")) @db.Date
+  order_status        String?               @db.VarChar(50)
+  supplier_id         Int?
+  supplier            supplier?             @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction)
+  purchase_order_item purchase_order_item[]
+}
+
+model purchase_order_item {
+  order_item_id  Int             @id @default(autoincrement())
+  order_id       Int?
+  ingredient_id  String?         @db.VarChar(50)
+  quantity       Int?
+  unit_cost      Decimal?        @db.Decimal(10, 2)
+  ingredient     ingredient?     @relation(fields: [ingredient_id], references: [ingredient_id], onDelete: NoAction, onUpdate: NoAction)
+  purchase_order purchase_order? @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model sale {
+  sale_id           Int                 @id @default(autoincrement())
+  sale_datetime     DateTime?           @default(now()) @db.Timestamptz(6)
+  subtotal          Decimal?            @db.Decimal(10, 2)
+  discount_amount   Decimal?            @db.Decimal(10, 2)
+  net_total         Decimal?            @db.Decimal(10, 2)
+  payment_method    String?             @db.VarChar(50)
+  employee_id       Int?
+  member_id         Int?
+  promotion_id      Int?
+  cash_received     Decimal?            @db.Decimal(10, 2)
+  change_amount     Decimal?            @db.Decimal(10, 2)
+  round_id          Int?
+  receipt_number    String?             @unique @db.VarChar(50)
+  point_transaction point_transaction[]
+  sales_round       sales_round?        @relation(fields: [round_id], references: [round_id], onUpdate: NoAction, map: "fk_sale_round")
+  employee          employee?           @relation(fields: [employee_id], references: [employee_id], onDelete: NoAction, onUpdate: NoAction)
+  member            member?             @relation(fields: [member_id], references: [member_id], onDelete: NoAction, onUpdate: NoAction)
+  promotion         promotion?          @relation(fields: [promotion_id], references: [promotion_id], onDelete: NoAction, onUpdate: NoAction)
+  sale_item         sale_item[]
+}
+
+model sale_item {
+  sale_item_id     Int                @id @default(autoincrement())
+  sale_id          Int?
+  menu_id          Int?
+  quantity         Int?
+  unit_price       Decimal?           @db.Decimal(10, 2)
+  menu             menu?              @relation(fields: [menu_id], references: [menu_id], onDelete: NoAction, onUpdate: NoAction)
+  sale             sale?              @relation(fields: [sale_id], references: [sale_id], onDelete: NoAction, onUpdate: NoAction)
+  sale_item_option sale_item_option[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model sales_round {
+  round_id                                 Int       @id @default(autoincrement())
+  opening_cash                             Decimal   @default(0.00) @db.Decimal(10, 2)
+  opened_at                                DateTime  @default(now()) @db.Timestamp(6)
+  opened_by                                Int?
+  closing_cash                             Decimal?  @db.Decimal(10, 2)
+  closed_at                                DateTime? @db.Timestamp(6)
+  closed_by                                Int?
+  status                                   String    @default("open") @db.VarChar(20)
+  total_sales                              Decimal?  @default(0.00) @db.Decimal(10, 2)
+  cash_sales                               Decimal?  @default(0.00) @db.Decimal(10, 2)
+  credit_card_sales                        Decimal?  @default(0.00) @db.Decimal(10, 2)
+  qr_sales                                 Decimal?  @default(0.00) @db.Decimal(10, 2)
+  total_transactions                       Int?      @default(0)
+  expected_cash                            Decimal?  @db.Decimal(10, 2)
+  cash_difference                          Decimal?  @default(0.00) @db.Decimal(10, 2)
+  notes                                    String?
+  created_at                               DateTime? @default(now()) @db.Timestamp(6)
+  updated_at                               DateTime? @default(now()) @db.Timestamp(6)
+  sale                                     sale[]
+  employee_sales_round_closed_byToemployee employee? @relation("sales_round_closed_byToemployee", fields: [closed_by], references: [employee_id], onDelete: NoAction, onUpdate: NoAction)
+  employee_sales_round_opened_byToemployee employee? @relation("sales_round_opened_byToemployee", fields: [opened_by], references: [employee_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model supplier {
+  supplier_id    Int              @id @default(autoincrement())
+  supplier_name  String?          @db.VarChar(200)
+  contact        String?          @db.VarChar(255)
+  purchase_order purchase_order[]
+}
+
+model inventory_transaction {
+  transaction_id   Int         @id @default(autoincrement())
+  ingredient_id    String?     @db.VarChar(50)
+  transaction_date DateTime?   @default(now()) @db.Timestamp(6)
+  transaction_type String?     @db.VarChar(50)
+  quantity         Int?
+  reference_id     String?     @db.VarChar(50)
+  notes            String?
+  employee_id      Int?
+  employee         employee?   @relation(fields: [employee_id], references: [employee_id], onDelete: NoAction, onUpdate: NoAction)
+  ingredient       ingredient? @relation(fields: [ingredient_id], references: [ingredient_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model menu_option_group {
+  group_id         Int                @id @default(autoincrement())
+  group_name       String             @db.VarChar(100)
+  menu_option_item menu_option_item[]
+}
+
+model menu_option_item {
+  item_id           Int                @id @default(autoincrement())
+  group_id          Int?
+  item_name         String             @db.VarChar(100)
+  additional_price  Decimal?           @default(0) @db.Decimal(10, 2)
+  menu_option_group menu_option_group? @relation(fields: [group_id], references: [group_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model point_transaction {
+  transaction_id   Int       @id @default(autoincrement())
+  member_id        Int?
+  sale_id          Int?
+  transaction_date DateTime? @default(now()) @db.Timestamp(6)
+  points_change    Int?
+  transaction_type String?   @db.VarChar(50)
+  notes            String?
+  member           member?   @relation(fields: [member_id], references: [member_id], onDelete: NoAction, onUpdate: NoAction)
+  sale             sale?     @relation(fields: [sale_id], references: [sale_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model sale_item_option {
+  sale_item_option_id Int        @id @default(autoincrement())
+  sale_item_id        Int?
+  option_name         String?    @db.VarChar(100)
+  additional_price    Decimal?   @db.Decimal(10, 2)
+  sale_item           sale_item? @relation(fields: [sale_item_id], references: [sale_item_id], onDelete: Cascade, onUpdate: NoAction)
+}

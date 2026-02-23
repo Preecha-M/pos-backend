@@ -1,62 +1,73 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '../common/db/db.module';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
 export class MenuService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  list() {
-    return this.pool.query(
-      `SELECT m.*, c.category_name
-       FROM menu m
-       LEFT JOIN pos_category c ON c.category_id = m.category_id
-       ORDER BY m.menu_id ASC`,
-    ).then(r => r.rows);
+  async list() {
+    const menus = await this.prisma.menu.findMany({
+      include: {
+        pos_category: {
+          select: { category_name: true }
+        }
+      },
+      orderBy: { menu_id: 'asc' }
+    });
+    
+    return menus.map(m => ({
+      ...m,
+      category_name: m.pos_category?.category_name || null
+    }));
   }
 
   async getById(id: number) {
-    const { rows } = await this.pool.query(`SELECT * FROM menu WHERE menu_id=$1`, [id]);
-    if (!rows[0]) throw new NotFoundException('Menu not found');
-    return rows[0];
+    const menu = await this.prisma.menu.findUnique({
+      where: { menu_id: id }
+    });
+    if (!menu) throw new NotFoundException('Menu not found');
+    return menu;
   }
 
   async create(body: any) {
-    const { rows } = await this.pool.query(
-      `INSERT INTO menu (menu_name, price, status, category_id, image_url)
-       VALUES ($1,$2,$3,$4,$5)
-       RETURNING *`,
-      [body.menu_name, body.price, body.status || 'Available', body.category_id ?? null, body.image_url ?? null],
-    );
-    return rows[0];
+    return this.prisma.menu.create({
+      data: {
+        menu_name: body.menu_name,
+        price: body.price,
+        status: body.status || 'Available',
+        category_id: body.category_id ?? null,
+        image_url: body.image_url ?? null,
+      }
+    });
   }
 
   async update(id: number, body: any) {
-    const { rowCount, rows } = await this.pool.query(
-      `UPDATE menu
-       SET menu_name   = COALESCE($1, menu_name),
-           price       = COALESCE($2, price),
-           status      = COALESCE($3, status),
-           category_id = COALESCE($4, category_id),
-           image_url   = COALESCE($5, image_url)
-       WHERE menu_id=$6
-       RETURNING *`,
-      [
-        body.menu_name ?? null,
-        body.price ?? null,
-        body.status ?? null,
-        body.category_id ?? null,
-        body.image_url ?? null,
-        id,
-      ],
-    );
-    if (!rowCount) throw new NotFoundException('Menu not found');
-    return rows[0];
+    try {
+      return await this.prisma.menu.update({
+        where: { menu_id: id },
+        data: {
+          menu_name: body.menu_name ?? undefined,
+          price: body.price ?? undefined,
+          status: body.status ?? undefined,
+          category_id: body.category_id ?? undefined,
+          image_url: body.image_url ?? undefined,
+        }
+      });
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Menu not found');
+      throw e;
+    }
   }
 
   async remove(id: number) {
-    const { rowCount } = await this.pool.query(`DELETE FROM menu WHERE menu_id=$1`, [id]);
-    if (!rowCount) throw new NotFoundException('Menu not found');
-    return { message: 'Deleted' };
+    try {
+      await this.prisma.menu.delete({
+        where: { menu_id: id }
+      });
+      return { message: 'Deleted' };
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Menu not found');
+      throw e;
+    }
   }
 }

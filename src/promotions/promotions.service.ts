@@ -1,159 +1,129 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '../common/db/db.module';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
 export class PromotionsService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async listActive() {
-    const res = await this.pool.query(
-      `SELECT p.*, COALESCE(json_agg(pm.menu_id) FILTER (WHERE pm.menu_id IS NOT NULL), '[]') as menu_ids
-       FROM promotion p
-       LEFT JOIN promotion_menu pm ON p.promotion_id = pm.promotion_id
-       WHERE (p.start_date IS NULL OR p.start_date <= CURRENT_DATE)
-         AND (p.end_date IS NULL OR p.end_date >= CURRENT_DATE)
-         AND COALESCE(p.is_active, TRUE) = TRUE
-       GROUP BY p.promotion_id
-       ORDER BY p.promotion_id ASC`,
-    );
-    return res.rows;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const promotions = await this.prisma.promotion.findMany({
+      where: {
+        OR: [{ start_date: null }, { start_date: { lte: today } }],
+        AND: [{ OR: [{ end_date: null }, { end_date: { gte: today } }] }]
+      },
+      include: {
+        promotion_menu: { select: { menu_id: true } }
+      },
+      orderBy: { promotion_id: 'asc' }
+    });
+
+    return promotions.map(p => ({
+      ...p,
+      menu_ids: p.promotion_menu.map(pm => pm.menu_id)
+    }));
   }
 
   async listAll() {
-    const res = await this.pool.query(
-      `SELECT p.*, COALESCE(json_agg(pm.menu_id) FILTER (WHERE pm.menu_id IS NOT NULL), '[]') as menu_ids
-       FROM promotion p
-       LEFT JOIN promotion_menu pm ON p.promotion_id = pm.promotion_id
-       WHERE COALESCE(p.is_active, TRUE) = TRUE
-       GROUP BY p.promotion_id
-       ORDER BY p.promotion_id DESC`,
-    );
-    return res.rows;
+    const promotions = await this.prisma.promotion.findMany({
+      include: {
+        promotion_menu: { select: { menu_id: true } }
+      },
+      orderBy: { promotion_id: 'desc' }
+    });
+
+    return promotions.map(p => ({
+      ...p,
+      menu_ids: p.promotion_menu.map(pm => pm.menu_id)
+    }));
   }
 
   async migrate() {
-    await this.pool.query(`
-      ALTER TABLE PROMOTION 
-      ADD COLUMN IF NOT EXISTS discount_type VARCHAR(50) DEFAULT 'AMOUNT',
-      ADD COLUMN IF NOT EXISTS discount_value DECIMAL(10, 2) DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS min_quantity INT DEFAULT 1,
-      ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
-    `);
+    // Left for backwards compatibility, no-op since Prisma manages schema
     return { success: true };
   }
 
   async create(body: any) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const res = await client.query(
-        `INSERT INTO promotion (promotion_name, promotion_detail, start_date, end_date, discount_type, discount_value, min_quantity)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         RETURNING *`,
-        [
-          body.promotion_name || null,
-          body.promotion_detail || null,
-          body.start_date || null,
-          body.end_date || null,
-          body.discount_type || 'AMOUNT',
-          body.discount_value || 0,
-          body.min_quantity || 1
-        ],
-      );
-      const promo = res.rows[0];
-
-      if (Array.isArray(body.menu_ids) && body.menu_ids.length > 0) {
-        for (const mid of body.menu_ids) {
-          await client.query(
-            `INSERT INTO promotion_menu (promotion_id, menu_id) VALUES ($1, $2)`,
-            [promo.promotion_id, mid]
-          );
+    return this.prisma.$transaction(async (tx) => {
+      const promo = await tx.promotion.create({
+        data: {
+          promotion_name: body.promotion_name || null,
+          promotion_detail: body.promotion_detail || null,
+          start_date: body.start_date ? new Date(body.start_date) : null,
+          end_date: body.end_date ? new Date(body.end_date) : null,
         }
-        promo.menu_ids = body.menu_ids;
-      } else {
-        promo.menu_ids = [];
+      });
+
+      let menu_ids = [];
+      if (Array.isArray(body.menu_ids) && body.menu_ids.length > 0) {
+        menu_ids = body.menu_ids;
+        await tx.promotion_menu.createMany({
+          data: menu_ids.map(mid => ({
+            promotion_id: promo.promotion_id,
+            menu_id: mid
+          }))
+        });
       }
 
-      await client.query('COMMIT');
-      return promo;
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+      return { ...promo, menu_ids };
+    });
   }
 
   async update(id: number, body: any) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const { rowCount, rows } = await client.query(
-        `UPDATE promotion
-         SET promotion_name=COALESCE($1,promotion_name),
-             promotion_detail=COALESCE($2,promotion_detail),
-             start_date=COALESCE($3,start_date),
-             end_date=COALESCE($4,end_date),
-             discount_type=COALESCE($5,discount_type),
-             discount_value=COALESCE($6,discount_value),
-             min_quantity=COALESCE($7,min_quantity)
-         WHERE promotion_id=$8
-         RETURNING *`,
-        [
-          body.promotion_name ?? null, 
-          body.promotion_detail ?? null, 
-          body.start_date ?? null, 
-          body.end_date ?? null, 
-          body.discount_type ?? null,
-          body.discount_value ?? null,
-          body.min_quantity ?? null,
-          id
-        ],
-      );
-      if (!rowCount) {
-        await client.query('ROLLBACK');
-        throw new NotFoundException('Promotion not found');
+    return this.prisma.$transaction(async (tx) => {
+      let promo;
+      try {
+        promo = await tx.promotion.update({
+          where: { promotion_id: id },
+          data: {
+            promotion_name: body.promotion_name ?? undefined,
+            promotion_detail: body.promotion_detail ?? undefined,
+            start_date: body.start_date !== undefined ? (body.start_date ? new Date(body.start_date) : null) : undefined,
+            end_date: body.end_date !== undefined ? (body.end_date ? new Date(body.end_date) : null) : undefined,
+          }
+        });
+      } catch (e: any) {
+        if (e.code === 'P2025') throw new NotFoundException('Promotion not found');
+        throw e;
       }
-      const promo = rows[0];
 
+      let menu_ids: (number | null)[] = [];
       if (body.menu_ids && Array.isArray(body.menu_ids)) {
-        await client.query(`DELETE FROM promotion_menu WHERE promotion_id=$1`, [id]);
-        for (const mid of body.menu_ids) {
-          await client.query(
-            `INSERT INTO promotion_menu (promotion_id, menu_id) VALUES ($1, $2)`,
-            [id, mid]
-          );
-        }
-        promo.menu_ids = body.menu_ids;
+        await tx.promotion_menu.deleteMany({ where: { promotion_id: id } });
+        menu_ids = body.menu_ids;
+        await tx.promotion_menu.createMany({
+          data: menu_ids.map(mid => ({
+            promotion_id: id,
+            menu_id: mid
+          }))
+        });
+      } else {
+        const existingMenus = await tx.promotion_menu.findMany({ where: { promotion_id: id }, select: { menu_id: true } });
+        menu_ids = existingMenus.map(m => m.menu_id);
       }
 
-      await client.query('COMMIT');
-      return promo;
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+      return { ...promo, menu_ids };
+    });
   }
 
   async remove(id: number) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const { rowCount } = await client.query(`UPDATE promotion SET is_active=FALSE WHERE promotion_id=$1`, [id]);
-      if (!rowCount) {
-        await client.query('ROLLBACK');
-        throw new NotFoundException('Promotion not found');
+    return this.prisma.$transaction(async (tx) => {
+      // First delete associated rows in promotion_menu
+      await tx.promotion_menu.deleteMany({
+        where: { promotion_id: id }
+      });
+      
+      try {
+        await tx.promotion.delete({
+          where: { promotion_id: id },
+        });
+        return { message: 'Deleted' };
+      } catch (e: any) {
+        if (e.code === 'P2025') throw new NotFoundException('Promotion not found');
+        throw e;
       }
-      await client.query('COMMIT');
-      return { message: 'Deleted' };
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 }

@@ -1,102 +1,129 @@
-import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '../common/db/db.module';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
 export class IngredientsService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  list() {
-    return this.pool.query(
-      `SELECT i.*, c.category_name
-       FROM ingredient i
-       LEFT JOIN ingredient_category c ON c.category_code=i.category_code
-       ORDER BY i.ingredient_id ASC`,
-    ).then(r => r.rows);
+  async list() {
+    const ingredients = await this.prisma.ingredient.findMany({
+      include: {
+        ingredient_category: {
+          select: { category_name: true }
+        }
+      },
+      orderBy: { ingredient_id: 'asc' }
+    });
+    
+    return ingredients.map(i => ({
+      ...i,
+      category_name: i.ingredient_category?.category_name || null
+    }));
   }
 
-  create(body: any) {
-    return this.pool.query(
-      `INSERT INTO ingredient
-       (ingredient_id, ingredient_name, unit, cost_per_unit, quantity_on_hand, expire_date, category_code)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING *`,
-      [
-        body.ingredient_id,
-        body.ingredient_name || null,
-        body.unit || null,
-        body.cost_per_unit ?? null,
-        body.quantity_on_hand ?? null,
-        body.expire_date || null,
-        body.category_code || null,
-      ],
-    ).then(r => r.rows[0]);
+  async create(body: any) {
+    return this.prisma.ingredient.create({
+      data: {
+        ingredient_id: body.ingredient_id,
+        ingredient_name: body.ingredient_name || null,
+        unit: body.unit || null,
+        cost_per_unit: body.cost_per_unit ?? null,
+        quantity_on_hand: body.quantity_on_hand ?? null,
+        expire_date: body.expire_date ? new Date(body.expire_date) : null,
+        category_code: body.category_code || null,
+      }
+    });
   }
 
   async update(id: string, body: any) {
-    const { rowCount, rows } = await this.pool.query(
-      `UPDATE ingredient
-       SET ingredient_name=COALESCE($1, ingredient_name),
-           unit=COALESCE($2, unit),
-           cost_per_unit=COALESCE($3, cost_per_unit),
-           quantity_on_hand=COALESCE($4, quantity_on_hand),
-           expire_date=COALESCE($5, expire_date),
-           category_code=COALESCE($6, category_code)
-       WHERE ingredient_id=$7
-       RETURNING *`,
-      [
-        body.ingredient_name ?? null,
-        body.unit ?? null,
-        body.cost_per_unit ?? null,
-        body.quantity_on_hand ?? null,
-        body.expire_date ?? null,
-        body.category_code ?? null,
-        id,
-      ],
-    );
-    if (!rowCount) throw new NotFoundException('Ingredient not found');
-    return rows[0];
+    try {
+      return await this.prisma.ingredient.update({
+        where: { ingredient_id: id },
+        data: {
+          ingredient_name: body.ingredient_name ?? undefined,
+          unit: body.unit ?? undefined,
+          cost_per_unit: body.cost_per_unit ?? undefined,
+          quantity_on_hand: body.quantity_on_hand ?? undefined,
+          expire_date: body.expire_date ? new Date(body.expire_date) : undefined,
+          category_code: body.category_code ?? undefined,
+        }
+      });
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Ingredient not found');
+      throw e;
+    }
   }
 
   async remove(id: string) {
-    const { rowCount } = await this.pool.query(`DELETE FROM ingredient WHERE ingredient_id=$1`, [id]);
-    if (!rowCount) throw new NotFoundException('Ingredient not found');
-    return { message: 'Deleted' };
+    try {
+      await this.prisma.ingredient.delete({
+        where: { ingredient_id: id }
+      });
+      return { message: 'Deleted' };
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Ingredient not found');
+      throw e;
+    }
   }
 
-  alerts(days = 7) {
-    return this.pool.query(
-      `SELECT *
-       FROM ingredient
-       WHERE expire_date IS NOT NULL
-         AND expire_date <= (CURRENT_DATE + ($1 || ' days')::interval)
-       ORDER BY expire_date ASC`,
-      [days],
-    ).then(r => r.rows);
+  async alerts(days = 7) {
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() + days);
+
+    return this.prisma.ingredient.findMany({
+      where: {
+        expire_date: {
+          not: null,
+          lte: targetDate
+        }
+      },
+      orderBy: { expire_date: 'asc' }
+    });
   }
 
   async withdraw(id: string, quantity: number) {
     if (quantity <= 0) throw new BadRequestException('Quantity must be greater than 0');
 
-    // Check if ingredient exists and has enough quantity
-    const { rows, rowCount } = await this.pool.query(
-      `SELECT quantity_on_hand FROM ingredient WHERE ingredient_id=$1`,
-      [id]
-    );
-    if (!rowCount) throw new NotFoundException('Ingredient not found');
+    // Use transaction to ensure atomicity
+    return this.prisma.$transaction(async (tx) => {
+      const ingredient = await tx.ingredient.findUnique({
+        where: { ingredient_id: id },
+        select: { quantity_on_hand: true }
+      });
+      
+      if (!ingredient) throw new NotFoundException('Ingredient not found');
+      
+      const currentQty = ingredient.quantity_on_hand || 0;
+      if (currentQty < quantity) {
+        throw new BadRequestException(`Not enough quantity. Current: ${currentQty}, Requested: ${quantity}`);
+      }
 
-    const currentQty = rows[0].quantity_on_hand || 0;
-    if (currentQty < quantity) {
-      throw new BadRequestException(`Not enough quantity. Current: ${currentQty}, Requested: ${quantity}`);
-    }
+      const res = await tx.ingredient.update({
+        where: { ingredient_id: id },
+        data: {
+          quantity_on_hand: { decrement: quantity }
+        }
+      });
 
-    const updateRes = await this.pool.query(
-      `UPDATE ingredient
-       SET quantity_on_hand = quantity_on_hand - $1
-       WHERE ingredient_id=$2
-       RETURNING *`,
-      [quantity, id]
-    );
-    return updateRes.rows[0];
+      await tx.inventory_transaction.create({
+        data: {
+          ingredient_id: id,
+          transaction_type: 'OUT',
+          quantity: -quantity,
+          notes: 'Manual withdrawal'
+        }
+      });
+
+      return res;
+    });
+  }
+
+  async getTransactions() {
+    return this.prisma.inventory_transaction.findMany({
+      orderBy: { transaction_date: 'desc' },
+      include: {
+        ingredient: { select: { ingredient_name: true, unit: true } }
+      }
+    });
   }
 }

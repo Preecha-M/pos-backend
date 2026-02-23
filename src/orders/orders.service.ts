@@ -1,122 +1,129 @@
-import { Inject, Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '../common/db/db.module';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
 export class OrdersService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async listWithItems() {
-    const orders = await this.pool.query(
-      `SELECT o.*, s.supplier_name
-       FROM purchase_order o
-       LEFT JOIN supplier s ON s.supplier_id=o.supplier_id
-       ORDER BY o.order_id DESC`,
-    );
+    const orders = await this.prisma.purchase_order.findMany({
+      include: {
+        supplier: { select: { supplier_name: true } },
+        purchase_order_item: {
+          include: {
+            ingredient: { select: { ingredient_name: true, unit: true } }
+          },
+          orderBy: { order_item_id: 'asc' }
+        }
+      },
+      orderBy: { order_id: 'desc' }
+    });
 
-    const items = await this.pool.query(
-      `SELECT oi.*, i.ingredient_name, i.unit
-       FROM purchase_order_item oi
-       LEFT JOIN ingredient i ON i.ingredient_id=oi.ingredient_id
-       ORDER BY oi.order_item_id ASC`,
-    );
-
-    const map = new Map<number, any>();
-    for (const o of orders.rows) map.set(o.order_id, { ...o, items: [] });
-    for (const it of items.rows) {
-      const holder = map.get(it.order_id);
-      if (holder) holder.items.push(it);
-    }
-    return [...map.values()];
+    return orders.map(o => ({
+      ...o,
+      supplier_name: o.supplier?.supplier_name || null,
+      items: o.purchase_order_item.map(it => ({
+        ...it,
+        ingredient_name: it.ingredient?.ingredient_name || null,
+        unit: it.ingredient?.unit || null
+      }))
+    }));
   }
 
   async create(body: any) {
     const { supplier_id, order_status, items } = body || {};
     if (!Array.isArray(items) || items.length === 0) throw new BadRequestException('items required');
 
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.purchase_order.create({
+        data: {
+          order_status: order_status || 'Pending',
+          supplier_id: supplier_id ?? null,
+        }
+      });
 
-      const orderRes = await client.query(
-        `INSERT INTO purchase_order (order_status, supplier_id)
-         VALUES ($1,$2)
-         RETURNING *`,
-        [order_status || 'Pending', supplier_id ?? null],
-      );
-      const order = orderRes.rows[0];
-
+      const itemsCreated: any[] = [];
       for (const it of items) {
         if (!it.ingredient_id || !it.quantity) {
-          await client.query('ROLLBACK');
           throw new BadRequestException('ingredient_id and quantity required');
         }
-        await client.query(
-          `INSERT INTO purchase_order_item (order_id, ingredient_id, quantity, unit_cost)
-           VALUES ($1,$2,$3,$4)`,
-          [order.order_id, it.ingredient_id, it.quantity, it.unit_cost ?? null],
-        );
+        const createdItem = await tx.purchase_order_item.create({
+          data: {
+            order_id: order.order_id,
+            ingredient_id: it.ingredient_id,
+            quantity: it.quantity,
+            unit_cost: it.unit_cost ?? null,
+          }
+        });
+        itemsCreated.push(createdItem);
       }
 
       if (String(order.order_status).toLowerCase() === 'received') {
         for (const it of items) {
-          await client.query(
-            `UPDATE ingredient
-             SET quantity_on_hand = COALESCE(quantity_on_hand,0) + $1
-             WHERE ingredient_id=$2`,
-            [it.quantity, it.ingredient_id],
-          );
+          await tx.ingredient.update({
+            where: { ingredient_id: it.ingredient_id },
+            data: {
+              quantity_on_hand: { increment: it.quantity }
+            }
+          });
+          await tx.inventory_transaction.create({
+            data: {
+              ingredient_id: it.ingredient_id,
+              transaction_type: 'IN',
+              quantity: it.quantity,
+              reference_id: String(order.order_id),
+              notes: 'Received from PO'
+            }
+          });
         }
       }
 
-      await client.query('COMMIT');
-      return { ...order, items };
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+      return { ...order, items: itemsCreated };
+    });
   }
 
   async updateStatus(id: number, status: string) {
     if (!status) throw new BadRequestException('status required');
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const orderRes = await client.query(
-        `UPDATE purchase_order SET order_status=$1 WHERE order_id=$2 RETURNING *`,
-        [status, id]
-      );
-      if (!orderRes.rowCount) {
-        await client.query('ROLLBACK');
-        throw new NotFoundException('Order not found');
+    
+    return this.prisma.$transaction(async (tx) => {
+      let order;
+      try {
+        order = await tx.purchase_order.update({
+          where: { order_id: id },
+          data: { order_status: status }
+        });
+      } catch (e: any) {
+        if (e.code === 'P2025') throw new NotFoundException('Order not found');
+        throw e;
       }
-      const order = orderRes.rows[0];
 
       if (String(status).toLowerCase() === 'received') {
-        const itemsRes = await client.query(
-          `SELECT * FROM purchase_order_item WHERE order_id=$1`,
-          [id]
-        );
-        for (const it of itemsRes.rows) {
-          await client.query(
-            `UPDATE ingredient
-             SET quantity_on_hand = COALESCE(quantity_on_hand,0) + $1
-             WHERE ingredient_id=$2`,
-            [it.quantity, it.ingredient_id]
-          );
+        const items = await tx.purchase_order_item.findMany({
+          where: { order_id: id }
+        });
+        
+        for (const it of items) {
+          if (it.quantity && it.ingredient_id) {
+            await tx.ingredient.update({
+              where: { ingredient_id: it.ingredient_id },
+              data: {
+                quantity_on_hand: { increment: it.quantity }
+              }
+            });
+            await tx.inventory_transaction.create({
+              data: {
+                ingredient_id: it.ingredient_id,
+                transaction_type: 'IN',
+                quantity: it.quantity,
+                reference_id: String(id),
+                notes: 'Received from PO'
+              }
+            });
+          }
         }
       }
 
-      await client.query('COMMIT');
       return order;
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 }

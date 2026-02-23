@@ -1,15 +1,13 @@
 import {
-  Inject,
   Injectable,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '../common/db/db.module';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
 export class SalesService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(user: any, body: any) {
     const employee_id = user.employee_id;
@@ -26,21 +24,18 @@ export class SalesService {
       throw new BadRequestException('items required');
     }
 
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-
+    return this.prisma.$transaction(async (tx) => {
       const menuIds = items
         .map((i: any) => Number(i.menu_id))
         .filter(Number.isFinite);
 
-      const menusRes = await client.query(
-        `SELECT menu_id, price FROM menu WHERE menu_id = ANY($1::int[])`,
-        [menuIds],
-      );
+      const menus = await tx.menu.findMany({
+        where: { menu_id: { in: menuIds } },
+        select: { menu_id: true, price: true }
+      });
 
       const priceMap = new Map<number, number>(
-        menusRes.rows.map((m) => [m.menu_id, Number(m.price)]),
+        menus.map((m) => [m.menu_id, Number(m.price)]),
       );
 
       let subtotal = 0;
@@ -56,12 +51,27 @@ export class SalesService {
           throw new BadRequestException('invalid unit_price');
         }
 
-        subtotal += unit_price * quantity;
+        let itemTotal = unit_price * quantity;
+        const mappedOptions: any[] = [];
+        
+        if (it.options && Array.isArray(it.options)) {
+          for (const opt of it.options) {
+            const addPrice = Number(opt.additional_price || 0);
+            itemTotal += (addPrice * quantity);
+            mappedOptions.push({
+              option_name: opt.option_name,
+              additional_price: addPrice
+            });
+          }
+        }
+
+        subtotal += itemTotal;
 
         return {
           menu_id: Number(it.menu_id),
           quantity,
           unit_price,
+          options: mappedOptions
         };
       });
 
@@ -92,206 +102,183 @@ export class SalesService {
 
       let currentRoundId: number | null = null;
       try {
-        const roundRes = await client.query(
-          `SELECT round_id FROM sales_round WHERE status = 'open' ORDER BY opened_at DESC LIMIT 1`,
-        );
-        if (roundRes.rows.length > 0) {
-          currentRoundId = roundRes.rows[0].round_id;
+        const round = await tx.sales_round.findFirst({
+          where: { status: 'open' },
+          orderBy: { opened_at: 'desc' },
+          select: { round_id: true }
+        });
+        if (round) {
+          currentRoundId = round.round_id;
         }
       } catch (e) {
         console.warn('Could not fetch current sales round:', e);
       }
 
-      const saleRes = await client.query(
-        `INSERT INTO sale
-        (subtotal, discount_amount, net_total, payment_method,
-         cash_received, change_amount,
-         employee_id, member_id, promotion_id, round_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING *`,
-        [
+      const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, ''); // YYMMDD
+      const randomId = Math.floor(1000 + Math.random() * 9000);
+      const receipt_number = body.receipt_number || `INV-${dateStr}-${randomId}`;
+
+      const sale = await tx.sale.create({
+        data: {
+          receipt_number,
           subtotal,
-          discount,
+          discount_amount: discount,
           net_total,
-          payment_method || 'Cash',
-          payment_method === 'Cash' ? cash_received : null,
+          payment_method: payment_method || 'Cash',
+          cash_received: payment_method === 'Cash' ? cash_received : null,
           change_amount,
           employee_id,
-          member_id ?? null,
-          promotion_id ?? null,
-          currentRoundId,
-        ],
-      );
-
-      const sale = saleRes.rows[0];
+          member_id: member_id ?? null,
+          promotion_id: promotion_id ?? null,
+          round_id: currentRoundId,
+        }
+      });
 
       for (const it of preparedItems) {
-        await client.query(
-          `INSERT INTO sale_item
-          (sale_id, menu_id, quantity, unit_price)
-         VALUES ($1,$2,$3,$4)`,
-          [sale.sale_id, it.menu_id, it.quantity, it.unit_price],
-        );
+        const createdItem = await tx.sale_item.create({
+          data: {
+            sale_id: sale.sale_id,
+            menu_id: it.menu_id,
+            quantity: it.quantity,
+            unit_price: it.unit_price
+          }
+        });
+        
+        if (it.options.length > 0) {
+          const optionsData = it.options.map((opt: any) => ({
+            sale_item_id: createdItem.sale_item_id,
+            option_name: opt.option_name,
+            additional_price: opt.additional_price
+          }));
+          await tx.sale_item_option.createMany({ data: optionsData });
+        }
       }
 
       if (member_id) {
         const earnedPoints = Math.floor(net_total / 100);
         if (earnedPoints > 0) {
-          await client.query(
-            `UPDATE member
-           SET points = COALESCE(points, 0) + $1
-           WHERE member_id = $2`,
-            [earnedPoints, member_id],
-          );
+          await tx.member.update({
+            where: { member_id },
+            data: { points: { increment: earnedPoints } }
+          });
+          await tx.point_transaction.create({
+            data: {
+              member_id,
+              sale_id: sale.sale_id,
+              points_change: earnedPoints,
+              transaction_type: 'EARN',
+              notes: 'Earned from purchase'
+            }
+          });
         }
       }
 
-      await client.query('COMMIT');
       return { ...sale, items: preparedItems };
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   
   async list(query: any) {
-    const conditions: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
-
     const { mode, month } = query || {};
-
     const allowedModes = ['month', 'year', 'custom'];
+    
     if (mode && !allowedModes.includes(mode)) {
-      throw new BadRequestException(
-        `Invalid mode. Allowed: ${allowedModes.join(', ')}`,
-      );
+      throw new BadRequestException(`Invalid mode. Allowed: ${allowedModes.join(', ')}`);
     }
 
+    const where: any = {};
+    const now = new Date();
 
     if (mode === 'month') {
-      conditions.push(
-        `date_trunc('month', s.sale_datetime) = date_trunc('month', now())`,
-      );
+      const gte = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lt = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      where.sale_datetime = { gte, lt };
+    } else if (mode === 'year') {
+      const gte = new Date(now.getFullYear(), 0, 1);
+      const lt = new Date(now.getFullYear() + 1, 0, 1);
+      where.sale_datetime = { gte, lt };
+    } else if (mode === 'custom') {
+      if (!month) throw new BadRequestException('month is required when mode=custom');
+      if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('Invalid month format. Expected YYYY-MM');
+      
+      const [yearStr, monthStr] = month.split('-');
+      const y = Number(yearStr);
+      const m = Number(monthStr) - 1; // 0-indexed month
+      
+      const gte = new Date(y, m, 1);
+      const lt = new Date(y, m + 1, 1);
+      where.sale_datetime = { gte, lt };
     }
 
-    if (mode === 'year') {
-      conditions.push(
-        `date_trunc('year', s.sale_datetime) = date_trunc('year', now())`,
-      );
-    }
+    const sales = await this.prisma.sale.findMany({
+      where,
+      include: {
+        employee: { select: { username: true } },
+        member: { select: { name: true } },
+        promotion: { select: { promotion_name: true } },
+        sale_item: {
+          include: { menu: { select: { menu_name: true } } },
+          orderBy: { sale_item_id: 'asc' }
+        }
+      },
+      orderBy: { sale_datetime: 'desc' }
+    });
 
-    if (mode === 'custom') {
-      if (!month) {
-        throw new BadRequestException('month is required when mode=custom');
-      }
-
-      if (!/^\d{4}-\d{2}$/.test(month)) {
-        throw new BadRequestException('Invalid month format. Expected YYYY-MM');
-      }
-
-      conditions.push(
-        `date_trunc('month', s.sale_datetime) = date_trunc('month', $${idx}::date)`,
-      );
-      values.push(`${month}-01`);
-      idx++;
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const salesRes = await this.pool.query(
-      `
-    SELECT s.*,
-           e.username AS employee_username,
-           m.name AS member_name,
-           p.promotion_name
-    FROM sale s
-    LEFT JOIN employee e ON e.employee_id = s.employee_id
-    LEFT JOIN member m ON m.member_id = s.member_id
-    LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
-    ${whereClause}
-    ORDER BY s.sale_datetime DESC
-    `,
-      values,
-    );
-
-    const itemsRes = await this.pool.query(
-      `
-    SELECT si.*, mn.menu_name
-    FROM sale_item si
-    LEFT JOIN menu mn ON mn.menu_id = si.menu_id
-    ORDER BY si.sale_item_id ASC
-    `,
-    );
-
-    const map = new Map<number, any>();
-    for (const s of salesRes.rows) {
-      map.set(s.sale_id, { ...s, items: [] });
-    }
-
-    for (const it of itemsRes.rows) {
-      const holder = map.get(it.sale_id);
-      if (holder) holder.items.push(it);
-    }
-
-    return [...map.values()];
+    return sales.map(s => ({
+      ...s,
+      employee_username: s.employee?.username || null,
+      member_name: s.member?.name || null,
+      promotion_name: s.promotion?.promotion_name || null,
+      items: s.sale_item.map(it => ({
+        ...it,
+        menu_name: it.menu?.menu_name || null
+      }))
+    }));
   }
 
 
   async getById(id: number) {
-    const saleRes = await this.pool.query(
-      `SELECT s.*, e.username AS employee_username,
-              m.name AS member_name, p.promotion_name
-       FROM sale s
-       LEFT JOIN employee e ON e.employee_id = s.employee_id
-       LEFT JOIN member m ON m.member_id = s.member_id
-       LEFT JOIN promotion p ON p.promotion_id = s.promotion_id
-       WHERE s.sale_id = $1`,
-      [id],
-    );
+    const sale = await this.prisma.sale.findUnique({
+      where: { sale_id: id },
+      include: {
+        employee: { select: { username: true } },
+        member: { select: { name: true } },
+        promotion: { select: { promotion_name: true } },
+        sale_item: {
+          include: { menu: { select: { menu_name: true } } },
+          orderBy: { sale_item_id: 'asc' }
+        }
+      }
+    });
 
-    if (!saleRes.rows[0]) {
+    if (!sale) {
       throw new NotFoundException('Sale not found');
     }
 
-    const itemsRes = await this.pool.query(
-      `SELECT si.*, mn.menu_name
-       FROM sale_item si
-       LEFT JOIN menu mn ON mn.menu_id = si.menu_id
-       WHERE si.sale_id = $1
-       ORDER BY si.sale_item_id ASC`,
-      [id],
-    );
-
-    return { ...saleRes.rows[0], items: itemsRes.rows };
+    return {
+      ...sale,
+      employee_username: sale.employee?.username || null,
+      member_name: sale.member?.name || null,
+      promotion_name: sale.promotion?.promotion_name || null,
+      items: sale.sale_item.map(it => ({
+        ...it,
+        menu_name: it.menu?.menu_name || null
+      }))
+    };
   }
 
 
   async remove(id: number) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(`DELETE FROM sale_item WHERE sale_id = $1`, [id]);
-      const { rowCount } = await client.query(
-        `DELETE FROM sale WHERE sale_id = $1`,
-        [id],
-      );
-      await client.query('COMMIT');
-
-      if (!rowCount) {
-        throw new NotFoundException('Sale not found');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.sale_item.deleteMany({ where: { sale_id: id } });
+      
+      try {
+        await tx.sale.delete({ where: { sale_id: id } });
+      } catch (e: any) {
+        if (e.code === 'P2025') throw new NotFoundException('Sale not found');
+        throw e;
       }
-
       return { message: 'Cancelled (deleted)' };
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 }

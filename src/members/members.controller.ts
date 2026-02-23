@@ -18,6 +18,11 @@ export class MembersController {
 }
 
 
+  @Get(':id/points-history')
+  getPointsHistory(@Param('id') id: string) {
+    return this.service.getPointsHistory(Number(id));
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.service.getById(Number(id));

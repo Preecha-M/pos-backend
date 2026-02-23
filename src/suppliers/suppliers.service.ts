@@ -1,20 +1,22 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '../common/db/db.module';
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
 export class SuppliersService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  list() {
-    return this.pool.query(`SELECT * FROM supplier ORDER BY supplier_id ASC`).then(r => r.rows);
+  async list() {
+    return this.prisma.supplier.findMany({
+      orderBy: { supplier_id: 'asc' }
+    });
   }
 
-  create(body: any) {
-    return this.pool.query(
-      `INSERT INTO supplier (supplier_name, contact)
-       VALUES ($1,$2) RETURNING *`,
-      [body.supplier_name || null, body.contact || null],
-    ).then(r => r.rows[0]);
+  async create(body: any) {
+    return this.prisma.supplier.create({
+      data: {
+        supplier_name: body.supplier_name || null,
+        contact: body.contact || null,
+      }
+    });
   }
 }
