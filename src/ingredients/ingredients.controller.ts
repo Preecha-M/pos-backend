@@ -20,6 +20,11 @@ export class IngredientsController {
     return this.service.alerts(Number.isFinite(n) ? n : 7);
   }
 
+  @Get('categories')
+  getCategories() {
+    return this.service.getCategories();
+  }
+
   @Get('transactions')
   getTransactions() {
     return this.service.getTransactions();

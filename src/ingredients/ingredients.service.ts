@@ -126,4 +126,10 @@ export class IngredientsService {
       }
     });
   }
+
+  async getCategories() {
+    return this.prisma.ingredient_category.findMany({
+      orderBy: { category_name: 'asc' }
+    });
+  }
 }
