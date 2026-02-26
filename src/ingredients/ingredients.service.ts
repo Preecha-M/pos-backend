@@ -132,4 +132,15 @@ export class IngredientsService {
       orderBy: { category_name: 'asc' }
     });
   }
+
+  async getLowStock(threshold: number = 5) {
+    return this.prisma.ingredient.findMany({
+      where: {
+        quantity_on_hand: {
+          lt: threshold
+        }
+      },
+      orderBy: { quantity_on_hand: 'asc' }
+    });
+  }
 }

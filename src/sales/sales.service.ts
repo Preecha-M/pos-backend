@@ -4,10 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class SalesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventsGateway: EventsGateway,
+  ) {}
 
   async create(user: any, body: any) {
     const employee_id = user.employee_id;
@@ -173,14 +177,19 @@ export class SalesService {
         }
       }
 
-      return { ...sale, items: preparedItems };
+      const saleResult = { ...sale, items: preparedItems };
+
+      // Broadcast new sale to connected clients
+      this.eventsGateway.emitNewSale(saleResult);
+
+      return saleResult;
     });
   }
 
   
   async list(query: any) {
-    const { mode, month } = query || {};
-    const allowedModes = ['month', 'year', 'custom'];
+    const { mode, month, date } = query || {};
+    const allowedModes = ['month', 'year', 'custom', 'day'];
     
     if (mode && !allowedModes.includes(mode)) {
       throw new BadRequestException(`Invalid mode. Allowed: ${allowedModes.join(', ')}`);
@@ -207,6 +216,14 @@ export class SalesService {
       
       const gte = new Date(y, m, 1);
       const lt = new Date(y, m + 1, 1);
+      where.sale_datetime = { gte, lt };
+    } else if (mode === 'day') {
+      if (!date) throw new BadRequestException('date is required when mode=day');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('Invalid date format. Expected YYYY-MM-DD');
+      
+      const [y, m, d] = date.split('-').map(Number);
+      const gte = new Date(y, m - 1, d);
+      const lt = new Date(y, m - 1, d + 1);
       where.sale_datetime = { gte, lt };
     }
 

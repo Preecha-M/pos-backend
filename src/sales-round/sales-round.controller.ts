@@ -45,6 +45,11 @@ export class SalesRoundController {
     return this.salesRoundService.listRounds(query);
   }
 
+  @Get(':id/analytics')
+  async getRoundAnalytics(@Param('id') id: string) {
+    return this.salesRoundService.getRoundAnalytics(Number(id));
+  }
+
   @Get(':id')
   async getRoundById(@Param('id') id: string) {
     return this.salesRoundService.getRoundById(Number(id));

@@ -20,6 +20,7 @@ import { SalesModule } from './sales/sales.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SalesRoundModule } from './sales-round/sales-round.module';
 import { MenuOptionsModule } from './menu-options/menu-options.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { MenuOptionsModule } from './menu-options/menu-options.module';
     DashboardModule,
     SalesRoundModule,
     MenuOptionsModule,
+    EventsModule,
   ],
 })
 export class AppModule {}
