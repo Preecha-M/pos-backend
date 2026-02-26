@@ -65,6 +65,7 @@ model menu {
   pos_category   pos_category?    @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction)
   promotion_menu promotion_menu[]
   sale_item      sale_item[]
+  menu_option_group_menu menu_option_group_menu[]
 }
 
 model pos_category {
@@ -197,8 +198,9 @@ model inventory_transaction {
 
 model menu_option_group {
   group_id         Int                @id @default(autoincrement())
-  group_name       String             @db.VarChar(100)
-  menu_option_item menu_option_item[]
+  group_name             String                   @db.VarChar(100)
+  menu_option_item       menu_option_item[]
+  menu_option_group_menu menu_option_group_menu[]
 }
 
 model menu_option_item {
@@ -227,4 +229,13 @@ model sale_item_option {
   option_name         String?    @db.VarChar(100)
   additional_price    Decimal?   @db.Decimal(10, 2)
   sale_item           sale_item? @relation(fields: [sale_item_id], references: [sale_item_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model menu_option_group_menu {
+  menu_id  Int
+  group_id Int
+  menu     menu               @relation(fields: [menu_id], references: [menu_id], onDelete: Cascade, onUpdate: NoAction)
+  group    menu_option_group @relation(fields: [group_id], references: [group_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([menu_id, group_id])
 }
