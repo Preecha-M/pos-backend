@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
@@ -51,13 +51,13 @@ export class CategoriesService {
 
   async remove(id: number) {
     try {
-      await this.prisma.pos_category.update({
-        where: { category_id: id },
-        data: { is_active: false }
+      await this.prisma.pos_category.delete({
+        where: { category_id: id }
       });
       return { message: 'Deleted' };
     } catch (e: any) {
       if (e.code === 'P2025') throw new NotFoundException('Category not found');
+      if (e.code === 'P2003') throw new BadRequestException('Cannot delete category because it contains menu items. Please remove them first.');
       throw e;
     }
   }
