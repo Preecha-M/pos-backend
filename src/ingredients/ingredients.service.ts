@@ -10,6 +10,9 @@ export class IngredientsService {
       include: {
         ingredient_category: {
           select: { category_name: true }
+        },
+        ingredient_batch: {
+          orderBy: { expire_date: 'asc' }
         }
       },
       orderBy: { ingredient_id: 'asc' }
@@ -29,7 +32,6 @@ export class IngredientsService {
         unit: body.unit || null,
         cost_per_unit: body.cost_per_unit ?? null,
         quantity_on_hand: body.quantity_on_hand ?? null,
-        expire_date: body.expire_date ? new Date(body.expire_date) : null,
         category_code: body.category_code || null,
       }
     });
@@ -44,7 +46,6 @@ export class IngredientsService {
           unit: body.unit ?? undefined,
           cost_per_unit: body.cost_per_unit ?? undefined,
           quantity_on_hand: body.quantity_on_hand ?? undefined,
-          expire_date: body.expire_date ? new Date(body.expire_date) : undefined,
           category_code: body.category_code ?? undefined,
         }
       });
@@ -70,15 +71,19 @@ export class IngredientsService {
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + days);
 
-    return this.prisma.ingredient.findMany({
+    const batches = await this.prisma.ingredient_batch.findMany({
       where: {
         expire_date: {
           not: null,
           lte: targetDate
-        }
+        },
+        quantity_on_hand: { gt: 0 }
       },
+      include: { ingredient: { select: { ingredient_name: true, unit: true } } },
       orderBy: { expire_date: 'asc' }
     });
+
+    return batches;
   }
 
   async withdraw(id: string, quantity: number) {
@@ -86,16 +91,46 @@ export class IngredientsService {
 
     // Use transaction to ensure atomicity
     return this.prisma.$transaction(async (tx) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
       const ingredient = await tx.ingredient.findUnique({
         where: { ingredient_id: id },
-        select: { quantity_on_hand: true }
+        include: {
+          ingredient_batch: {
+            where: {
+              quantity_on_hand: { gt: 0 },
+              OR: [
+                { expire_date: null },
+                { expire_date: { gte: today } }
+              ]
+            },
+            orderBy: [{ expire_date: 'asc' }, { created_at: 'asc' }]
+          }
+        }
       });
       
       if (!ingredient) throw new NotFoundException('Ingredient not found');
       
-      const currentQty = ingredient.quantity_on_hand || 0;
-      if (currentQty < quantity) {
-        throw new BadRequestException(`Not enough quantity. Current: ${currentQty}, Requested: ${quantity}`);
+      const totalValidQty = ingredient.ingredient_batch.reduce((sum, b) => sum + b.quantity_on_hand, 0);
+      
+      if (totalValidQty < quantity) {
+        throw new BadRequestException(`Not enough valid/unexpired quantity. Available: ${totalValidQty}, Requested: ${quantity}`);
+      }
+
+      let remainingToWithdraw = quantity;
+
+      for (const batch of ingredient.ingredient_batch) {
+        if (remainingToWithdraw <= 0) break;
+
+        const qtyToTake = Math.min(batch.quantity_on_hand, remainingToWithdraw);
+        
+        await tx.ingredient_batch.update({
+          where: { batch_id: batch.batch_id },
+          data: { quantity_on_hand: { decrement: qtyToTake } }
+        });
+
+        remainingToWithdraw -= qtyToTake;
       }
 
       const res = await tx.ingredient.update({

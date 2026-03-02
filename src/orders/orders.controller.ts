@@ -22,6 +22,6 @@ export class OrdersController {
 
   @Put(':id/status')
   updateStatus(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateStatus(Number(id), body.order_status);
+    return this.service.updateStatus(Number(id), body.order_status, body.itemExpiries);
   }
 }

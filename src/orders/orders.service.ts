@@ -82,7 +82,7 @@ export class OrdersService {
     });
   }
 
-  async updateStatus(id: number, status: string) {
+  async updateStatus(id: number, status: string, itemExpiries?: { order_item_id: number; expire_date: string }[]) {
     if (!status) throw new BadRequestException('status required');
     
     return this.prisma.$transaction(async (tx) => {
@@ -104,12 +104,25 @@ export class OrdersService {
         
         for (const it of items) {
           if (it.quantity && it.ingredient_id) {
+            // Increment total quantity
             await tx.ingredient.update({
               where: { ingredient_id: it.ingredient_id },
               data: {
                 quantity_on_hand: { increment: it.quantity }
               }
             });
+            
+            // Create a specific batch
+            const expData = itemExpiries?.find(x => Number(x.order_item_id) === Number(it.order_item_id));
+            console.log('Match expData', expData, 'for item', it.order_item_id);
+            await tx.ingredient_batch.create({
+              data: {
+                ingredient_id: it.ingredient_id,
+                quantity_on_hand: it.quantity,
+                expire_date: expData?.expire_date ? new Date(expData.expire_date) : null
+              }
+            });
+
             await tx.inventory_transaction.create({
               data: {
                 ingredient_id: it.ingredient_id,
