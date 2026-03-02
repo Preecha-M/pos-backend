@@ -6,7 +6,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('suppliers')
 @UseGuards(AuthGuard, RolesGuard)
-@Roles('Admin', 'Manager')
+@Roles('Admin', 'Owner', 'Manager')
 export class SuppliersController {
   constructor(private readonly service: SuppliersService) {}
 

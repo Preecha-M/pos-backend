@@ -12,7 +12,7 @@ export class UploadController {
 
   @Post('menu-image')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),

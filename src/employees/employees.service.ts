@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -12,7 +13,7 @@ export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list() {
-    return this.prisma.employee.findMany({
+    const employees = await this.prisma.employee.findMany({
       select: {
         employee_id: true,
         first_name_th: true,
@@ -25,9 +26,22 @@ export class EmployeesService {
         username: true,
         role: true,
         status: true,
+        _count: {
+          select: {
+            sale: true,
+            sales_round_sales_round_opened_byToemployee: true,
+          },
+        },
       },
       orderBy: { employee_id: 'asc' },
     });
+
+    return employees.map(e => ({
+      ...e,
+      total_sales: e._count.sale,
+      total_shifts: e._count.sales_round_sales_round_opened_byToemployee,
+      _count: undefined,
+    }));
   }
 
   async create(body: any) {
@@ -67,8 +81,24 @@ export class EmployeesService {
     }
   }
 
-  async update(id: number, body: any) {
+  async update(id: number, body: any, currentUser: any) {
     if (!Number.isFinite(id)) throw new BadRequestException('Invalid id');
+
+    // Role Hierarchy Check
+    const target = await this.prisma.employee.findUnique({ where: { employee_id: id } });
+    if (!target) throw new NotFoundException('Employee not found');
+
+    const targetRole = target.role;
+    const currentRole = currentUser.role;
+
+    if (currentRole !== 'Admin') {
+      if (targetRole === 'Admin') {
+         throw new ForbiddenException('You cannot modify an Admin account.');
+      }
+      if (currentRole === 'Owner' && targetRole === 'Owner' && target.employee_id !== currentUser.employee_id) {
+         throw new ForbiddenException('Owners cannot modify other Owner accounts.');
+      }
+    }
 
     const data: any = {};
     if (body.first_name_th !== undefined) data.first_name_th = body.first_name_th;
@@ -106,7 +136,23 @@ export class EmployeesService {
     }
   }
 
-  async resign(id: number) {
+  async resign(id: number, currentUser: any) {
+    // Role Hierarchy Check
+    const target = await this.prisma.employee.findUnique({ where: { employee_id: id } });
+    if (!target) throw new NotFoundException('Employee not found');
+
+    const targetRole = target.role;
+    const currentRole = currentUser.role;
+
+    if (currentRole !== 'Admin') {
+      if (targetRole === 'Admin') {
+         throw new ForbiddenException('You cannot modify an Admin account.');
+      }
+      if (currentRole === 'Owner' && targetRole === 'Owner' && target.employee_id !== currentUser.employee_id) {
+         throw new ForbiddenException('Owners cannot modify other Owner accounts.');
+      }
+    }
+
     try {
       return await this.prisma.employee.update({
         where: { employee_id: id },

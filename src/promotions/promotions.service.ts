@@ -53,6 +53,9 @@ export class PromotionsService {
           promotion_detail: body.promotion_detail || null,
           start_date: body.start_date ? new Date(body.start_date) : null,
           end_date: body.end_date ? new Date(body.end_date) : null,
+          discount_type: body.discount_type || 'AMOUNT',
+          discount_value: body.discount_value !== undefined ? Number(body.discount_value) : 0,
+          min_quantity: body.min_quantity !== undefined ? Number(body.min_quantity) : 1,
         }
       });
 
@@ -82,6 +85,9 @@ export class PromotionsService {
             promotion_detail: body.promotion_detail ?? undefined,
             start_date: body.start_date !== undefined ? (body.start_date ? new Date(body.start_date) : null) : undefined,
             end_date: body.end_date !== undefined ? (body.end_date ? new Date(body.end_date) : null) : undefined,
+            discount_type: body.discount_type ?? undefined,
+            discount_value: body.discount_value !== undefined ? Number(body.discount_value) : undefined,
+            min_quantity: body.min_quantity !== undefined ? Number(body.min_quantity) : undefined,
           }
         });
       } catch (e: any) {

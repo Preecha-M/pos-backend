@@ -38,7 +38,7 @@ export class IngredientsController {
 
   @Post()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   create(@Body() body: any) {
     if (!body?.ingredient_id) throw new BadRequestException('ingredient_id required');
     return this.service.create(body);
@@ -46,21 +46,21 @@ export class IngredientsController {
 
   @Put(':id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   update(@Param('id') id: string, @Body() body: any) {
     return this.service.update(id, body);
   }
 
   @Delete(':id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
 
   @Post(':id/withdraw')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   withdraw(@Param('id') id: string, @Body() body: any) {
     if (!body?.quantity) throw new BadRequestException('quantity required');
     return this.service.withdraw(id, Number(body.quantity));

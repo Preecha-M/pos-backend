@@ -23,7 +23,7 @@ export class MenuController {
 
   @Post()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   create(@Body() body: any) {
     if (!body?.menu_name || body?.price === undefined) throw new BadRequestException('menu_name and price required');
     return this.service.create(body);
@@ -31,14 +31,14 @@ export class MenuController {
 
   @Put(':id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   update(@Param('id') id: string, @Body() body: any) {
     return this.service.update(Number(id), body);
   }
 
   @Delete(':id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   remove(@Param('id') id: string) {
     return this.service.remove(Number(id));
   }

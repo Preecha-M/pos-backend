@@ -36,7 +36,7 @@ export class SalesController {
 
   @Delete(':id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   remove(@Param('id') id: string) {
     return this.service.remove(Number(id));
   }

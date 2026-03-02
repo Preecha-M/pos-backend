@@ -16,7 +16,7 @@ export class PromotionsController {
 
   @Get('all')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   listAll() {
     return this.service.listAll();
   }
@@ -28,21 +28,21 @@ export class PromotionsController {
 
   @Post()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   create(@Body() body: any) {
     return this.service.create(body);
   }
 
   @Put(':id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   update(@Param('id') id: string, @Body() body: any) {
     return this.service.update(Number(id), body);
   }
 
   @Delete(':id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   remove(@Param('id') id: string) {
     return this.service.remove(Number(id));
   }

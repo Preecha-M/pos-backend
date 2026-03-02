@@ -16,42 +16,42 @@ export class MenuOptionsController {
 
   @Post('groups')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   createGroup(@Body() body: any) {
     return this.service.createGroup(body);
   }
 
   @Put('groups/:id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   updateGroup(@Param('id') id: string, @Body() body: any) {
     return this.service.updateGroup(Number(id), body);
   }
 
   @Delete('groups/:id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   removeGroup(@Param('id') id: string) {
     return this.service.removeGroup(Number(id));
   }
 
   @Post('items')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   createItem(@Body() body: any) {
     return this.service.createItem(body);
   }
 
   @Put('items/:id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   updateItem(@Param('id') id: string, @Body() body: any) {
     return this.service.updateItem(Number(id), body);
   }
 
   @Delete('items/:id')
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Owner', 'Manager')
   removeItem(@Param('id') id: string) {
     return this.service.removeItem(Number(id));
   }

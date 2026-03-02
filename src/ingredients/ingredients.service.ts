@@ -25,15 +25,40 @@ export class IngredientsService {
   }
 
   async create(body: any) {
-    return this.prisma.ingredient.create({
-      data: {
-        ingredient_id: body.ingredient_id,
-        ingredient_name: body.ingredient_name || null,
-        unit: body.unit || null,
-        cost_per_unit: body.cost_per_unit ?? null,
-        quantity_on_hand: body.quantity_on_hand ?? null,
-        category_code: body.category_code || null,
+    return this.prisma.$transaction(async (tx) => {
+      const quantityOnHand = body.quantity_on_hand ? Number(body.quantity_on_hand) : null;
+      
+      const ingredient = await tx.ingredient.create({
+        data: {
+          ingredient_id: body.ingredient_id,
+          ingredient_name: body.ingredient_name || null,
+          unit: body.unit || null,
+          cost_per_unit: body.cost_per_unit ?? null,
+          quantity_on_hand: quantityOnHand,
+          category_code: body.category_code || null,
+        }
+      });
+
+      if (quantityOnHand && quantityOnHand > 0) {
+        await tx.ingredient_batch.create({
+          data: {
+            ingredient_id: ingredient.ingredient_id,
+            quantity_on_hand: quantityOnHand,
+            expire_date: body.expire_date ? new Date(body.expire_date) : null
+          }
+        });
+
+        await tx.inventory_transaction.create({
+          data: {
+            ingredient_id: ingredient.ingredient_id,
+            transaction_type: 'IN',
+            quantity: quantityOnHand,
+            notes: 'Initial stock on creation'
+          }
+        });
       }
+
+      return ingredient;
     });
   }
 
