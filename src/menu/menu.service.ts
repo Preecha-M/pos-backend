@@ -61,10 +61,14 @@ export class MenuService {
 
   async remove(id: number) {
     try {
-      await this.prisma.menu.delete({
-        where: { menu_id: id }
+      // Soft delete: set status to 'Inactive' instead of hard delete
+      // Hard delete fails when menu has related sale_item or promotion_menu records (onDelete: NoAction)
+      const updated = await this.prisma.menu.update({
+        where: { menu_id: id },
+        data: { status: 'Inactive' }
       });
-      return { message: 'Deleted' };
+      if (!updated) throw new NotFoundException('Menu not found');
+      return { message: 'Menu deactivated successfully' };
     } catch (e: any) {
       if (e.code === 'P2025') throw new NotFoundException('Menu not found');
       throw e;
