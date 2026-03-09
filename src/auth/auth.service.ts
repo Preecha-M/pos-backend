@@ -34,7 +34,7 @@ export class AuthService {
   async login(username: string, password: string) {
     const emp = await this.prisma.employee.findUnique({
       where: { username },
-      select: { employee_id: true, username: true, password: true, role: true, status: true }
+      select: { employee_id: true, username: true, password: true, role: true, status: true, first_name_th: true, last_name_th: true }
     });
     
     if (!emp) throw new UnauthorizedException('Invalid credentials');
@@ -63,6 +63,8 @@ export class AuthService {
       user: {
         employee_id: emp.employee_id,
         username: emp.username,
+        first_name_th: emp.first_name_th,
+        last_name_th: emp.last_name_th,
         role: emp.role,
         status: emp.status,
       },

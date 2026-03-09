@@ -30,7 +30,7 @@ export class OrdersService {
     }));
   }
 
-  async create(body: any) {
+  async create(body: any, employeeId?: number) {
     const { supplier_id, order_status, items } = body || {};
     if (!Array.isArray(items) || items.length === 0) throw new BadRequestException('items required');
 
@@ -72,7 +72,8 @@ export class OrdersService {
               transaction_type: 'IN',
               quantity: it.quantity,
               reference_id: String(order.order_id),
-              notes: 'Received from PO'
+              notes: 'Received from PO',
+              employee_id: employeeId || null
             }
           });
         }
@@ -82,7 +83,7 @@ export class OrdersService {
     });
   }
 
-  async updateStatus(id: number, status: string, itemExpiries?: { order_item_id: number; expire_date: string }[]) {
+  async updateStatus(id: number, status: string, itemExpiries?: { order_item_id: number; expire_date: string }[], employeeId?: number) {
     if (!status) throw new BadRequestException('status required');
     
     return this.prisma.$transaction(async (tx) => {
@@ -119,7 +120,8 @@ export class OrdersService {
               data: {
                 ingredient_id: it.ingredient_id,
                 quantity_on_hand: it.quantity,
-                expire_date: expData?.expire_date ? new Date(expData.expire_date) : null
+                expire_date: expData?.expire_date ? new Date(expData.expire_date) : null,
+                cost_per_unit: it.unit_cost ?? null
               }
             });
 
@@ -129,7 +131,8 @@ export class OrdersService {
                 transaction_type: 'IN',
                 quantity: it.quantity,
                 reference_id: String(id),
-                notes: 'Received from PO'
+                notes: 'Received from PO',
+                employee_id: employeeId || null
               }
             });
           }

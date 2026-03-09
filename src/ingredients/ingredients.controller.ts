@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, BadRequestException, Req } from '@nestjs/common';
 import { IngredientsService } from './ingredients.service';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -61,8 +61,8 @@ export class IngredientsController {
   @Post(':id/withdraw')
   @UseGuards(AuthGuard, RolesGuard)
   @Roles('Admin', 'Owner', 'Manager')
-  withdraw(@Param('id') id: string, @Body() body: any) {
+  withdraw(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     if (!body?.quantity) throw new BadRequestException('quantity required');
-    return this.service.withdraw(id, Number(body.quantity));
+    return this.service.withdraw(id, Number(body.quantity), req.user?.employee_id);
   }
 }

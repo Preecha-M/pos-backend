@@ -159,7 +159,7 @@ export class SalesService {
       }
 
       if (member_id) {
-        const earnedPoints = Math.floor(net_total / 100);
+        const earnedPoints = preparedItems.reduce((acc: number, it: any) => acc + it.quantity, 0);
         if (earnedPoints > 0) {
           await tx.member.update({
             where: { member_id },
@@ -230,7 +230,7 @@ export class SalesService {
     const sales = await this.prisma.sale.findMany({
       where,
       include: {
-        employee: { select: { username: true } },
+        employee: { select: { username: true, first_name_th: true, last_name_th: true } },
         member: { select: { name: true } },
         promotion: { select: { promotion_name: true } },
         sale_item: {
@@ -244,6 +244,7 @@ export class SalesService {
     return sales.map(s => ({
       ...s,
       employee_username: s.employee?.username || null,
+      employee_name: s.employee ? `${s.employee.first_name_th || ''} ${s.employee.last_name_th || ''}`.trim() : null,
       member_name: s.member?.name || null,
       promotion_name: s.promotion?.promotion_name || null,
       items: s.sale_item.map(it => ({
@@ -258,7 +259,7 @@ export class SalesService {
     const sale = await this.prisma.sale.findUnique({
       where: { sale_id: id },
       include: {
-        employee: { select: { username: true } },
+        employee: { select: { username: true, first_name_th: true, last_name_th: true } },
         member: { select: { name: true } },
         promotion: { select: { promotion_name: true } },
         sale_item: {
@@ -275,6 +276,7 @@ export class SalesService {
     return {
       ...sale,
       employee_username: sale.employee?.username || null,
+      employee_name: sale.employee ? `${sale.employee.first_name_th || ''} ${sale.employee.last_name_th || ''}`.trim() : null,
       member_name: sale.member?.name || null,
       promotion_name: sale.promotion?.promotion_name || null,
       items: sale.sale_item.map(it => ({
@@ -287,11 +289,51 @@ export class SalesService {
 
   async remove(id: number) {
     try {
-      await this.prisma.sale.update({
-        where: { sale_id: id },
-        data: { status: 'VOIDED' }
+      return await this.prisma.$transaction(async (tx) => {
+        const sale = await tx.sale.findUnique({
+          where: { sale_id: id },
+          include: { point_transaction: true }
+        });
+
+        if (!sale) {
+          throw new NotFoundException('Sale not found');
+        }
+
+        if (sale.status === 'VOIDED') {
+          return { message: 'Sale is already voided' };
+        }
+
+        // Void the sale
+        await tx.sale.update({
+          where: { sale_id: id },
+          data: { status: 'VOIDED' }
+        });
+
+        // Deduct points if earned from this sale
+        if (sale.member_id && sale.net_total) {
+          const earnedTx = sale.point_transaction.find(pt => pt.transaction_type === 'EARN');
+          if (earnedTx && earnedTx.points_change) {
+            const pointsToDeduct = earnedTx.points_change;
+
+            await tx.member.update({
+              where: { member_id: sale.member_id },
+              data: { points: { decrement: pointsToDeduct } }
+            });
+
+            await tx.point_transaction.create({
+              data: {
+                member_id: sale.member_id,
+                sale_id: sale.sale_id,
+                points_change: -pointsToDeduct,
+                transaction_type: 'VOID',
+                notes: `Points deducted due to voided sale #${sale.sale_id}`
+              }
+            });
+          }
+        }
+
+        return { message: 'Voided (Soft Deleted)' };
       });
-      return { message: 'Voided (Soft Deleted)' };
     } catch (e: any) {
       if (e.code === 'P2025') throw new NotFoundException('Sale not found');
       throw e;

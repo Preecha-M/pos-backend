@@ -71,7 +71,10 @@ export class SalesRoundService {
     }
 
     const sales = await this.prisma.sale.findMany({
-      where: { sale_datetime: { gte: round.opened_at } },
+      where: { 
+        sale_datetime: { gte: round.opened_at },
+        status: { not: 'VOIDED' }
+      },
       select: { net_total: true, payment_method: true }
     });
 
@@ -159,7 +162,10 @@ export class SalesRoundService {
     const round = await this.getRoundById(roundId);
     
     const sales = await this.prisma.sale.findMany({
-      where: { round_id: roundId },
+      where: { 
+        round_id: roundId,
+        status: { not: 'VOIDED' }
+      },
       include: {
         sale_item: {
           include: {

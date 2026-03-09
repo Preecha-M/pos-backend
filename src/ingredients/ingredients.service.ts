@@ -45,7 +45,8 @@ export class IngredientsService {
           data: {
             ingredient_id: ingredient.ingredient_id,
             quantity_on_hand: quantityOnHand,
-            expire_date: body.expire_date ? new Date(body.expire_date) : null
+            expire_date: body.expire_date ? new Date(body.expire_date) : null,
+            cost_per_unit: body.cost_per_unit ?? null
           }
         });
 
@@ -119,7 +120,7 @@ export class IngredientsService {
     return { expired, expiringSoon };
   }
 
-  async withdraw(id: string, quantity: number) {
+  async withdraw(id: string, quantity: number, employeeId?: number) {
     if (quantity <= 0) throw new BadRequestException('Quantity must be greater than 0');
 
     // Use transaction to ensure atomicity
@@ -178,7 +179,8 @@ export class IngredientsService {
           ingredient_id: id,
           transaction_type: 'OUT',
           quantity: -quantity,
-          notes: 'Manual withdrawal'
+          notes: 'Manual withdrawal',
+          employee_id: employeeId || null
         }
       });
 
@@ -190,7 +192,8 @@ export class IngredientsService {
     return this.prisma.inventory_transaction.findMany({
       orderBy: { transaction_date: 'desc' },
       include: {
-        ingredient: { select: { ingredient_name: true, unit: true } }
+        ingredient: { select: { ingredient_name: true, unit: true } },
+        employee: { select: { first_name_th: true, last_name_th: true, username: true } }
       }
     });
   }
