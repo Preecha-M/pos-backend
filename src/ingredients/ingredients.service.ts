@@ -7,6 +7,7 @@ export class IngredientsService {
 
   async list() {
     const ingredients = await this.prisma.ingredient.findMany({
+      where: { is_active: true },
       include: {
         ingredient_category: {
           select: { category_name: true }
@@ -82,10 +83,11 @@ export class IngredientsService {
 
   async remove(id: string) {
     try {
-      await this.prisma.ingredient.delete({
-        where: { ingredient_id: id }
+      await this.prisma.ingredient.update({
+        where: { ingredient_id: id },
+        data: { is_active: false }
       });
-      return { message: 'Deleted' };
+      return { message: 'Deactivated' };
     } catch (e: any) {
       if (e.code === 'P2025') throw new NotFoundException('Ingredient not found');
       throw e;

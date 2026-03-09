@@ -286,16 +286,15 @@ export class SalesService {
 
 
   async remove(id: number) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.sale_item.deleteMany({ where: { sale_id: id } });
-      
-      try {
-        await tx.sale.delete({ where: { sale_id: id } });
-      } catch (e: any) {
-        if (e.code === 'P2025') throw new NotFoundException('Sale not found');
-        throw e;
-      }
-      return { message: 'Cancelled (deleted)' };
-    });
+    try {
+      await this.prisma.sale.update({
+        where: { sale_id: id },
+        data: { status: 'VOIDED' }
+      });
+      return { message: 'Voided (Soft Deleted)' };
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Sale not found');
+      throw e;
+    }
   }
 }

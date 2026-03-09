@@ -11,6 +11,7 @@ export class PromotionsService {
 
     const promotions = await this.prisma.promotion.findMany({
       where: {
+        is_active: true,
         OR: [{ start_date: null }, { start_date: { lte: today } }],
         AND: [{ OR: [{ end_date: null }, { end_date: { gte: today } }] }]
       },
@@ -28,6 +29,7 @@ export class PromotionsService {
 
   async listAll() {
     const promotions = await this.prisma.promotion.findMany({
+      where: { is_active: true },
       include: {
         promotion_menu: { select: { menu_id: true } }
       },
@@ -115,21 +117,15 @@ export class PromotionsService {
   }
 
   async remove(id: number) {
-    return this.prisma.$transaction(async (tx) => {
-      // First delete associated rows in promotion_menu
-      await tx.promotion_menu.deleteMany({
-        where: { promotion_id: id }
+    try {
+      await this.prisma.promotion.update({
+        where: { promotion_id: id },
+        data: { is_active: false }
       });
-      
-      try {
-        await tx.promotion.delete({
-          where: { promotion_id: id },
-        });
-        return { message: 'Deleted' };
-      } catch (e: any) {
-        if (e.code === 'P2025') throw new NotFoundException('Promotion not found');
-        throw e;
-      }
-    });
+      return { message: 'Deactivated' };
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Promotion not found');
+      throw e;
+    }
   }
 }

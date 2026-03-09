@@ -66,9 +66,11 @@ export class MenuOptionsService {
   }
 
   async removeGroup(id: number) {
-    return this.prisma.menu_option_group.delete({
-      where: { group_id: id }
+    const group = await this.prisma.menu_option_group.update({
+      where: { group_id: id },
+      data: { is_active: false }
     });
+    return group;
   }
 
   async createItem(data: any) {
@@ -92,8 +94,10 @@ export class MenuOptionsService {
   }
 
   async removeItem(id: number) {
-    return this.prisma.menu_option_item.delete({
-      where: { item_id: id }
+    const item = await this.prisma.menu_option_item.update({
+      where: { item_id: id },
+      data: { is_active: false }
     });
+    return item;
   }
 }

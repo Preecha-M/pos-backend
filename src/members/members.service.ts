@@ -9,12 +9,14 @@ export class MembersService {
     const p = String(phone || '').trim();
     if (!p) {
       return this.prisma.member.findMany({
+        where: { is_active: true },
         orderBy: { member_id: 'asc' }
       });
     }
     return this.prisma.member.findMany({
       where: {
-        phone: { contains: p, mode: 'insensitive' }
+        phone: { contains: p, mode: 'insensitive' },
+        is_active: true
       },
       orderBy: { member_id: 'asc' }
     });
@@ -73,10 +75,11 @@ export class MembersService {
 
   async remove(id: number) {
     try {
-      await this.prisma.member.delete({
-        where: { member_id: id }
+      await this.prisma.member.update({
+        where: { member_id: id },
+        data: { is_active: false }
       });
-      return { message: 'Deleted' };
+      return { message: 'Deactivated' };
     } catch (e: any) {
       if (e.code === 'P2025') throw new NotFoundException('Member not found');
       throw e;

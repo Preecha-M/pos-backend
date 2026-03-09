@@ -7,6 +7,7 @@ export class CategoriesService {
 
   async list() {
     return this.prisma.pos_category.findMany({
+      where: { is_active: true },
       select: {
         category_id: true,
         category_name: true,
@@ -51,13 +52,13 @@ export class CategoriesService {
 
   async remove(id: number) {
     try {
-      await this.prisma.pos_category.delete({
-        where: { category_id: id }
+      await this.prisma.pos_category.update({
+        where: { category_id: id },
+        data: { is_active: false }
       });
-      return { message: 'Deleted' };
+      return { message: 'Deactivated' };
     } catch (e: any) {
       if (e.code === 'P2025') throw new NotFoundException('Category not found');
-      if (e.code === 'P2003') throw new BadRequestException('Cannot delete category because it contains menu items. Please remove them first.');
       throw e;
     }
   }
