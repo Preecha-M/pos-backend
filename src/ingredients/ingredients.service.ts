@@ -95,6 +95,9 @@ export class IngredientsService {
   }
 
   async alerts(days = 7) {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + days);
 
@@ -110,7 +113,10 @@ export class IngredientsService {
       orderBy: { expire_date: 'asc' }
     });
 
-    return batches;
+    const expired = batches.filter(b => new Date(b.expire_date!) < now);
+    const expiringSoon = batches.filter(b => new Date(b.expire_date!) >= now);
+
+    return { expired, expiringSoon };
   }
 
   async withdraw(id: string, quantity: number) {
@@ -196,13 +202,37 @@ export class IngredientsService {
   }
 
   async getLowStock(threshold: number = 5) {
-    return this.prisma.ingredient.findMany({
-      where: {
-        quantity_on_hand: {
-          lt: threshold
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const ingredients = await this.prisma.ingredient.findMany({
+      where: { is_active: true },
+      include: {
+        ingredient_batch: {
+          where: {
+            quantity_on_hand: { gt: 0 },
+            OR: [
+              { expire_date: null },
+              { expire_date: { gte: now } }
+            ]
+          }
         }
       },
-      orderBy: { quantity_on_hand: 'asc' }
+      orderBy: { ingredient_id: 'asc' }
     });
+
+    return ingredients
+      .map(i => ({
+        ...i,
+        validStock: i.ingredient_batch.reduce((sum, b) => sum + b.quantity_on_hand, 0)
+      }))
+      .filter(i => i.validStock < threshold)
+      .map(i => ({
+        ingredient_id: i.ingredient_id,
+        ingredient_name: i.ingredient_name,
+        unit: i.unit,
+        quantity_on_hand: i.validStock
+      }))
+      .sort((a, b) => a.quantity_on_hand - b.quantity_on_hand);
   }
 }
