@@ -147,6 +147,7 @@ model sale {
   receipt_number    String?             @unique @db.VarChar(50)
   status            String?             @default("COMPLETED") @db.VarChar(50)
   point_transaction point_transaction[]
+  tax_invoice       tax_invoice[]
   sales_round       sales_round?        @relation(fields: [round_id], references: [round_id], onUpdate: NoAction, map: "fk_sale_round")
   employee          employee?           @relation(fields: [employee_id], references: [employee_id], onDelete: NoAction, onUpdate: NoAction)
   member            member?             @relation(fields: [member_id], references: [member_id], onDelete: NoAction, onUpdate: NoAction)
@@ -255,4 +256,28 @@ model menu_option_group_menu {
   group    menu_option_group @relation(fields: [group_id], references: [group_id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([menu_id, group_id])
+}
+
+model tax_invoice {
+  invoice_id       Int       @id @default(autoincrement())
+  invoice_number   String    @unique @db.VarChar(50)
+  sale_id          Int?
+  invoice_date     DateTime  @default(now()) @db.Timestamptz(6)
+  customer_name    String    @db.VarChar(200)
+  customer_address String?
+  customer_tax_id  String    @db.VarChar(20)
+  customer_branch  String?   @db.VarChar(100)
+  store_name       String?   @db.VarChar(200)
+  store_address    String?
+  store_tax_id     String?   @db.VarChar(20)
+  store_phone      String?   @db.VarChar(20)
+  subtotal         Decimal   @db.Decimal(10, 2)
+  vat_rate         Decimal   @default(7.00) @db.Decimal(5, 2)
+  vat_amount       Decimal   @db.Decimal(10, 2)
+  total_amount     Decimal   @db.Decimal(10, 2)
+  notes            String?
+  status           String    @default("ISSUED") @db.VarChar(20)
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamp(6)
+  sale             sale?     @relation(fields: [sale_id], references: [sale_id], onDelete: NoAction, onUpdate: NoAction)
 }

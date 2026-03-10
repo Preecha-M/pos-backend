@@ -21,6 +21,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { SalesRoundModule } from './sales-round/sales-round.module';
 import { MenuOptionsModule } from './menu-options/menu-options.module';
 import { EventsModule } from './events/events.module';
+import { TaxInvoicesModule } from './tax-invoices/tax-invoices.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { EventsModule } from './events/events.module';
     SalesRoundModule,
     MenuOptionsModule,
     EventsModule,
+    TaxInvoicesModule,
   ],
 })
 export class AppModule {}

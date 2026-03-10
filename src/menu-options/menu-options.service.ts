@@ -9,7 +9,9 @@ export class MenuOptionsService {
     const groups = await this.prisma.menu_option_group.findMany({
       orderBy: { group_id: 'asc' },
       include: {
-        menu_option_item: true,
+        menu_option_item: {
+          where: { is_active: true },
+        },
         menu_option_group_menu: {
           select: { menu_id: true }
         }
