@@ -204,6 +204,65 @@ export class IngredientsService {
     });
   }
 
+  async createCategory(body: any) {
+    let category_code = body.category_code;
+    
+    // Auto-generate if not provided
+    if (!category_code) {
+      let nextId = 1;
+      const lastCat = await this.prisma.ingredient_category.findFirst({
+        where: { category_code: { startsWith: 'CAT' } },
+        orderBy: { category_code: 'desc' },
+      });
+      
+      if (lastCat) {
+        // Assume format CAT001, CAT002, etc.
+        const numPart = lastCat.category_code.replace('CAT', '');
+        if (!isNaN(Number(numPart))) {
+          nextId = Number(numPart) + 1;
+        }
+      }
+      category_code = `CAT${nextId.toString().padStart(3, '0')}`;
+    }
+
+    return this.prisma.ingredient_category.create({
+      data: {
+        category_code,
+        category_name: body.category_name,
+        is_active: body.is_active ?? true
+      }
+    });
+  }
+
+  async updateCategory(id: string, body: any) {
+    try {
+      return await this.prisma.ingredient_category.update({
+        where: { category_code: id },
+        data: {
+          category_name: body.category_name ?? undefined,
+          is_active: body.is_active ?? undefined
+        }
+      });
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Category not found');
+      throw e;
+    }
+  }
+
+  async removeCategory(id: string) {
+    try {
+      await this.prisma.ingredient_category.delete({
+        where: { category_code: id }
+      });
+      return { message: 'Deleted' };
+    } catch (e: any) {
+      if (e.code === 'P2025') throw new NotFoundException('Category not found');
+      // If there's a foreign key constraint violation, we can't delete it
+      if (e.code === 'P2003') throw new BadRequestException('Cannot delete category because it is being used by ingredients');
+      throw e;
+    }
+  }
+
   async getLowStock(threshold: number = 15) {
     const now = new Date();
     now.setHours(0, 0, 0, 0);

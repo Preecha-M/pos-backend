@@ -25,6 +25,28 @@ export class IngredientsController {
     return this.service.getCategories();
   }
 
+  @Post('categories')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('Admin', 'Owner', 'Manager')
+  createCategory(@Body() body: any) {
+    if (!body?.category_name) throw new BadRequestException('category_name required');
+    return this.service.createCategory(body);
+  }
+
+  @Put('categories/:id')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('Admin', 'Owner', 'Manager')
+  updateCategory(@Param('id') id: string, @Body() body: any) {
+    return this.service.updateCategory(id, body);
+  }
+
+  @Delete('categories/:id')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('Admin', 'Owner', 'Manager')
+  removeCategory(@Param('id') id: string) {
+    return this.service.removeCategory(id);
+  }
+
   @Get('low-stock')
   getLowStock(@Query('threshold') threshold?: string) {
     const t = Number(threshold || 15);
