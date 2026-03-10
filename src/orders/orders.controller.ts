@@ -24,4 +24,9 @@ export class OrdersController {
   updateStatus(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     return this.service.updateStatus(Number(id), body.order_status, body.itemExpiries, req.user?.employee_id);
   }
+
+  @Post(':id/receive')
+  receivePO(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.service.receivePO(Number(id), body.itemsToReceive, req.user?.employee_id);
+  }
 }

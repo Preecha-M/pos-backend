@@ -32,4 +32,27 @@ export class UploadController {
       throw new InternalServerErrorException({ message: 'upload error', error: String(e?.message || e) });
     }
   }
+
+  @Post('po-document')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('Admin', 'Owner', 'Manager')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    }),
+  )
+  async uploadPODocument(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('file required');
+
+    if (!/^(image\/(png|jpe?g|webp|gif)|application\/pdf)$/.test(file.mimetype)) {
+      throw new BadRequestException('only image or pdf files are allowed');
+    }
+
+    try {
+      return await this.service.uploadPODocument(file);
+    } catch (e: any) {
+      throw new InternalServerErrorException({ message: 'upload error', error: String(e?.message || e) });
+    }
+  }
 }
