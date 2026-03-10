@@ -103,14 +103,18 @@ export class TaxInvoicesService {
     const where: any = {};
 
     if (start_date && end_date) {
+      const endOfDay = new Date(end_date);
+      endOfDay.setHours(23, 59, 59, 999);
       where.invoice_date = {
         gte: new Date(start_date),
-        lte: new Date(end_date),
+        lte: endOfDay,
       };
     } else if (start_date) {
       where.invoice_date = { gte: new Date(start_date) };
     } else if (end_date) {
-      where.invoice_date = { lte: new Date(end_date) };
+      const endOfDay = new Date(end_date);
+      endOfDay.setHours(23, 59, 59, 999);
+      where.invoice_date = { lte: endOfDay };
     }
 
     if (status) {
