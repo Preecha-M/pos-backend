@@ -79,6 +79,41 @@ export class SalesService {
         };
       });
 
+      // Check if selected promotion is a POINTS type
+      let isPointsPromo = false;
+      let pointsToRedeem = 0;
+
+      if (promotion_id) {
+        const promo = await tx.promotion.findUnique({
+          where: { promotion_id: Number(promotion_id) }
+        });
+
+        if (promo && promo.discount_type === 'POINTS') {
+          isPointsPromo = true;
+          pointsToRedeem = Number(promo.discount_value || 0);
+
+          // POINTS promotion requires a member
+          if (!member_id) {
+            throw new BadRequestException('POINTS promotion requires a member');
+          }
+
+          // Check member has enough points
+          const member = await tx.member.findUnique({
+            where: { member_id: Number(member_id) }
+          });
+
+          if (!member) {
+            throw new BadRequestException('Member not found');
+          }
+
+          if ((member.points || 0) < pointsToRedeem) {
+            throw new BadRequestException(
+              `Not enough points. Required: ${pointsToRedeem}, Available: ${member.points || 0}`
+            );
+          }
+        }
+      }
+
       const discount = Number(discount_amount || 0);
       const net_total = subtotal - discount;
 
@@ -159,7 +194,13 @@ export class SalesService {
       }
 
       if (member_id) {
-        const earnedPoints = preparedItems.reduce((acc: number, it: any) => acc + it.quantity, 0);
+        let earnedPoints = preparedItems.reduce((acc: number, it: any) => acc + it.quantity, 0);
+        
+        // Disable point earning if ANY promotion is used
+        if (promotion_id) {
+          earnedPoints = 0;
+        }
+
         if (earnedPoints > 0) {
           await tx.member.update({
             where: { member_id },
@@ -172,6 +213,23 @@ export class SalesService {
               points_change: earnedPoints,
               transaction_type: 'EARN',
               notes: 'Earned from purchase'
+            }
+          });
+        }
+
+        // Deduct points if POINTS promotion was used
+        if (isPointsPromo && pointsToRedeem > 0) {
+          await tx.member.update({
+            where: { member_id },
+            data: { points: { decrement: pointsToRedeem } }
+          });
+          await tx.point_transaction.create({
+            data: {
+              member_id,
+              sale_id: sale.sale_id,
+              points_change: -pointsToRedeem,
+              transaction_type: 'REDEEM',
+              notes: `Redeemed ${pointsToRedeem} points for ฿${pointsToRedeem} discount`
             }
           });
         }

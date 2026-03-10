@@ -204,7 +204,7 @@ export class IngredientsService {
     });
   }
 
-  async getLowStock(threshold: number = 5) {
+  async getLowStock(threshold: number = 15) {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 

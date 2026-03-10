@@ -27,8 +27,8 @@ export class IngredientsController {
 
   @Get('low-stock')
   getLowStock(@Query('threshold') threshold?: string) {
-    const t = Number(threshold || 5);
-    return this.service.getLowStock(Number.isFinite(t) ? t : 5);
+    const t = Number(threshold || 15);
+    return this.service.getLowStock(Number.isFinite(t) ? t : 15);
   }
 
   @Get('transactions')

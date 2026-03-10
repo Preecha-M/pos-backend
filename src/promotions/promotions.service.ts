@@ -6,14 +6,18 @@ export class PromotionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listActive() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const bkkTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+    const y = bkkTime.getFullYear();
+    const m = String(bkkTime.getMonth() + 1).padStart(2, '0');
+    const d = String(bkkTime.getDate()).padStart(2, '0');
+    const todayUTC = new Date(`${y}-${m}-${d}T00:00:00.000Z`);
 
     const promotions = await this.prisma.promotion.findMany({
       where: {
         is_active: true,
-        OR: [{ start_date: null }, { start_date: { lte: today } }],
-        AND: [{ OR: [{ end_date: null }, { end_date: { gte: today } }] }]
+        OR: [{ start_date: null }, { start_date: { lte: todayUTC } }],
+        AND: [{ OR: [{ end_date: null }, { end_date: { gte: todayUTC } }] }]
       },
       include: {
         promotion_menu: { select: { menu_id: true } }
