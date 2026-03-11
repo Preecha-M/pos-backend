@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, BadRequestException, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { IngredientsService } from './ingredients.service';
+import { CreateIngredientDto, UpdateIngredientDto } from './dto/create-ingredient.dto';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -61,16 +62,15 @@ export class IngredientsController {
   @Post()
   @UseGuards(AuthGuard, RolesGuard)
   @Roles('Admin', 'Owner', 'Manager')
-  create(@Body() body: any) {
-    if (!body?.ingredient_id) throw new BadRequestException('ingredient_id required');
-    return this.service.create(body);
+  create(@Body() dto: CreateIngredientDto) {
+    return this.service.create(dto);
   }
 
   @Put(':id')
   @UseGuards(AuthGuard, RolesGuard)
   @Roles('Admin', 'Owner', 'Manager')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() dto: UpdateIngredientDto) {
+    return this.service.update(id, dto);
   }
 
   @Delete(':id')
@@ -78,13 +78,5 @@ export class IngredientsController {
   @Roles('Admin', 'Owner', 'Manager')
   remove(@Param('id') id: string) {
     return this.service.remove(id);
-  }
-
-  @Post(':id/withdraw')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles('Admin', 'Owner', 'Manager')
-  withdraw(@Param('id') id: string, @Body() body: any, @Req() req: any) {
-    if (!body?.quantity) throw new BadRequestException('quantity required');
-    return this.service.withdraw(id, Number(body.quantity), req.user?.employee_id);
   }
 }

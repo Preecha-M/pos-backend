@@ -22,6 +22,7 @@ import { SalesRoundModule } from './sales-round/sales-round.module';
 import { MenuOptionsModule } from './menu-options/menu-options.module';
 import { EventsModule } from './events/events.module';
 import { TaxInvoicesModule } from './tax-invoices/tax-invoices.module';
+import { WithdrawalsModule } from './withdrawals/withdrawals.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { TaxInvoicesModule } from './tax-invoices/tax-invoices.module';
     PromotionsModule,
     SuppliersModule,
     OrdersModule,
+    WithdrawalsModule,
     SalesModule,
     DashboardModule,
     SalesRoundModule,

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { CreateIngredientDto, UpdateIngredientDto } from './dto/create-ingredient.dto';
 
 @Injectable()
 export class IngredientsService {
@@ -25,18 +26,18 @@ export class IngredientsService {
     }));
   }
 
-  async create(body: any) {
+  async create(dto: CreateIngredientDto) {
     return this.prisma.$transaction(async (tx) => {
-      const quantityOnHand = body.quantity_on_hand ? Number(body.quantity_on_hand) : null;
+      const quantityOnHand = dto.quantity_on_hand ? Number(dto.quantity_on_hand) : null;
       
       const ingredient = await tx.ingredient.create({
         data: {
-          ingredient_id: body.ingredient_id,
-          ingredient_name: body.ingredient_name || null,
-          unit: body.unit || null,
-          cost_per_unit: body.cost_per_unit ?? null,
+          ingredient_id: dto.ingredient_id,
+          ingredient_name: dto.ingredient_name || null,
+          unit: dto.unit || null,
+          cost_per_unit: dto.cost_per_unit ?? null,
           quantity_on_hand: quantityOnHand,
-          category_code: body.category_code || null,
+          category_code: dto.category_code || null,
         }
       });
 
@@ -45,8 +46,8 @@ export class IngredientsService {
           data: {
             ingredient_id: ingredient.ingredient_id,
             quantity_on_hand: quantityOnHand,
-            expire_date: body.expire_date ? new Date(body.expire_date) : null,
-            cost_per_unit: body.cost_per_unit ?? null
+            expire_date: dto.expire_date ? new Date(dto.expire_date) : null,
+            cost_per_unit: dto.cost_per_unit ?? null
           }
         });
 
@@ -64,16 +65,16 @@ export class IngredientsService {
     });
   }
 
-  async update(id: string, body: any) {
+  async update(id: string, dto: UpdateIngredientDto) {
     try {
       return await this.prisma.ingredient.update({
         where: { ingredient_id: id },
         data: {
-          ingredient_name: body.ingredient_name ?? undefined,
-          unit: body.unit ?? undefined,
-          cost_per_unit: body.cost_per_unit ?? undefined,
-          quantity_on_hand: body.quantity_on_hand ?? undefined,
-          category_code: body.category_code ?? undefined,
+          ingredient_name: dto.ingredient_name ?? undefined,
+          unit: dto.unit ?? undefined,
+          cost_per_unit: dto.cost_per_unit ?? undefined,
+          quantity_on_hand: dto.quantity_on_hand ?? undefined,
+          category_code: dto.category_code ?? undefined,
         }
       });
     } catch (e: any) {
@@ -120,74 +121,6 @@ export class IngredientsService {
     return { expired, expiringSoon };
   }
 
-  async withdraw(id: string, quantity: number, employeeId?: number) {
-    if (quantity <= 0) throw new BadRequestException('Quantity must be greater than 0');
-
-    // Use transaction to ensure atomicity
-    return this.prisma.$transaction(async (tx) => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const ingredient = await tx.ingredient.findUnique({
-        where: { ingredient_id: id },
-        include: {
-          ingredient_batch: {
-            where: {
-              quantity_on_hand: { gt: 0 },
-              OR: [
-                { expire_date: null },
-                { expire_date: { gte: today } }
-              ]
-            },
-            orderBy: [{ expire_date: 'asc' }, { created_at: 'asc' }]
-          }
-        }
-      });
-      
-      if (!ingredient) throw new NotFoundException('Ingredient not found');
-      
-      const totalValidQty = ingredient.ingredient_batch.reduce((sum, b) => sum + b.quantity_on_hand, 0);
-      
-      if (totalValidQty < quantity) {
-        throw new BadRequestException(`Not enough valid/unexpired quantity. Available: ${totalValidQty}, Requested: ${quantity}`);
-      }
-
-      let remainingToWithdraw = quantity;
-
-      for (const batch of ingredient.ingredient_batch) {
-        if (remainingToWithdraw <= 0) break;
-
-        const qtyToTake = Math.min(batch.quantity_on_hand, remainingToWithdraw);
-        
-        await tx.ingredient_batch.update({
-          where: { batch_id: batch.batch_id },
-          data: { quantity_on_hand: { decrement: qtyToTake } }
-        });
-
-        remainingToWithdraw -= qtyToTake;
-      }
-
-      const res = await tx.ingredient.update({
-        where: { ingredient_id: id },
-        data: {
-          quantity_on_hand: { decrement: quantity }
-        }
-      });
-
-      await tx.inventory_transaction.create({
-        data: {
-          ingredient_id: id,
-          transaction_type: 'OUT',
-          quantity: -quantity,
-          notes: 'Manual withdrawal',
-          employee_id: employeeId || null
-        }
-      });
-
-      return res;
-    });
-  }
-
   async getTransactions() {
     return this.prisma.inventory_transaction.findMany({
       orderBy: { transaction_date: 'desc' },
@@ -207,7 +140,6 @@ export class IngredientsService {
   async createCategory(body: any) {
     let category_code = body.category_code;
     
-    // Auto-generate if not provided
     if (!category_code) {
       let nextId = 1;
       const lastCat = await this.prisma.ingredient_category.findFirst({
@@ -216,7 +148,6 @@ export class IngredientsService {
       });
       
       if (lastCat) {
-        // Assume format CAT001, CAT002, etc.
         const numPart = lastCat.category_code.replace('CAT', '');
         if (!isNaN(Number(numPart))) {
           nextId = Number(numPart) + 1;
@@ -257,7 +188,6 @@ export class IngredientsService {
       return { message: 'Deleted' };
     } catch (e: any) {
       if (e.code === 'P2025') throw new NotFoundException('Category not found');
-      // If there's a foreign key constraint violation, we can't delete it
       if (e.code === 'P2003') throw new BadRequestException('Cannot delete category because it is being used by ingredients');
       throw e;
     }
