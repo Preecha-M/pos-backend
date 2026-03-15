@@ -23,6 +23,7 @@ import { MenuOptionsModule } from './menu-options/menu-options.module';
 import { EventsModule } from './events/events.module';
 import { TaxInvoicesModule } from './tax-invoices/tax-invoices.module';
 import { ReportsModule } from './reports/reports.module';
+import { WithdrawalsModule } from './withdrawals/withdrawals.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { ReportsModule } from './reports/reports.module';
     EventsModule,
     TaxInvoicesModule,
     ReportsModule,
+    WithdrawalsModule,
   ],
 })
 export class AppModule {}
