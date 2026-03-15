@@ -1,4 +1,4 @@
-// DBML generated from Prisma schema (PostgreSQL)
+// DBML generated from Prisma schema (PostgreSQL) - updated
 
 Table employee {
   employee_id int [pk, increment, note: 'รหัสพนักงาน']
@@ -64,7 +64,7 @@ Table menu {
   price decimal(10, 2)
   status varchar(50)
   category_id int [ref: > pos_category.category_id]
-  image_url varchar
+  image_url text
 }
 
 Table promotion {
@@ -97,16 +97,20 @@ Table purchase_order {
   po_number varchar(50) [unique]
   order_date date
   delivery_date date
+  received_date date
   order_status varchar(50)
   supplier_id int [ref: > supplier.supplier_id]
   credit_days int
   payment_terms varchar(100)
+  payment_method varchar(50)
   subtotal decimal(10, 2)
   tax_rate decimal(5, 2) [default: 7.00]
   tax_amount decimal(10, 2)
   total_amount decimal(10, 2)
   notes text
   document_url text
+  goods_receipt_url text
+  tax_invoice_url text
 }
 
 Table purchase_order_item {
@@ -232,4 +236,20 @@ Table menu_option_item {
 Table menu_option_group_menu {
   menu_id int [pk, ref: > menu.menu_id]
   group_id int [pk, ref: > menu_option_group.group_id]
+}
+
+Table withdrawal_request {
+  withdrawal_id int [pk, increment]
+  wd_number varchar(50) [unique]
+  request_date timestamp
+  status varchar(50) [default: 'Completed']
+  notes text
+  employee_id int [ref: > employee.employee_id]
+}
+
+Table withdrawal_request_item {
+  withdrawal_item_id int [pk, increment]
+  withdrawal_id int [ref: > withdrawal_request.withdrawal_id]
+  ingredient_id varchar(50) [ref: > ingredient.ingredient_id]
+  quantity int
 }
