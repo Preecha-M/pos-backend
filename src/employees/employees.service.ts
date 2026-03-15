@@ -26,6 +26,7 @@ export class EmployeesService {
         username: true,
         role: true,
         status: true,
+        salary: true,
         _count: {
           select: {
             sale: true,
@@ -38,6 +39,7 @@ export class EmployeesService {
 
     return employees.map(e => ({
       ...e,
+      salary: e.salary != null ? Number(e.salary) : null,
       total_sales: e._count.sale,
       total_shifts: e._count.sales_round_sales_round_opened_byToemployee,
       _count: undefined,
@@ -65,6 +67,7 @@ export class EmployeesService {
           password: hash,
           role: body.role || 'Staff',
           status: body.status || 'Active',
+          salary: body.salary != null && body.salary !== '' ? Number(body.salary) : null,
         },
         select: {
           employee_id: true,
@@ -110,6 +113,7 @@ export class EmployeesService {
     if (body.education !== undefined) data.education = body.education;
     if (body.role !== undefined) data.role = body.role;
     if (body.status !== undefined) data.status = body.status;
+    if (body.salary !== undefined) data.salary = body.salary !== '' && body.salary != null ? Number(body.salary) : null;
 
     if (body.password) {
       data.password = await bcrypt.hash(body.password, 10);

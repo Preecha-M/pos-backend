@@ -20,6 +20,7 @@ model employee {
   password                                    String?                 @db.VarChar(255)
   role                                        String?                 @db.VarChar(50)
   status                                      String?                 @db.VarChar(50)
+  salary                                      Decimal?                @db.Decimal(10, 2)
   inventory_transaction                       inventory_transaction[]
   sale                                        sale[]
   sales_round_sales_round_closed_byToemployee sales_round[]           @relation("sales_round_closed_byToemployee")

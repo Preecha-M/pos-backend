@@ -22,6 +22,7 @@ import { SalesRoundModule } from './sales-round/sales-round.module';
 import { MenuOptionsModule } from './menu-options/menu-options.module';
 import { EventsModule } from './events/events.module';
 import { TaxInvoicesModule } from './tax-invoices/tax-invoices.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { TaxInvoicesModule } from './tax-invoices/tax-invoices.module';
     MenuOptionsModule,
     EventsModule,
     TaxInvoicesModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}

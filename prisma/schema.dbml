@@ -1,0 +1,235 @@
+// DBML generated from Prisma schema (PostgreSQL)
+
+Table employee {
+  employee_id int [pk, increment, note: 'รหัสพนักงาน']
+  first_name_th varchar(100)
+  last_name_th varchar(100)
+  first_name_en varchar(100)
+  last_name_en varchar(100)
+  phone varchar(20)
+  birth_date date
+  education varchar(255)
+  username varchar(50) [unique]
+  password varchar(255)
+  role varchar(50)
+  status varchar(50)
+  salary decimal(10, 2)
+}
+
+Table ingredient_category {
+  category_code varchar(50) [pk]
+  category_name varchar(100)
+  is_active boolean [default: true]
+}
+
+Table ingredient {
+  ingredient_id varchar(50) [pk]
+  ingredient_name varchar(200)
+  unit varchar(50)
+  cost_per_unit decimal(10, 2)
+  quantity_on_hand int
+  category_code varchar(50) [ref: > ingredient_category.category_code]
+  is_active boolean [default: true]
+}
+
+Table ingredient_batch {
+  batch_id int [pk, increment]
+  ingredient_id varchar(50) [ref: > ingredient.ingredient_id]
+  quantity_on_hand int [default: 0]
+  expire_date date
+  cost_per_unit decimal(10, 2)
+  created_at timestamp
+}
+
+Table member {
+  member_id int [pk, increment]
+  name varchar(200)
+  gender varchar(20)
+  phone varchar(20)
+  points int [default: 0]
+  is_active boolean [default: true]
+}
+
+Table pos_category {
+  category_id int [pk, increment]
+  category_name varchar(100) [unique]
+  icon varchar(50)
+  position int [default: 1]
+  is_active boolean [default: true]
+}
+
+Table menu {
+  menu_id int [pk, increment]
+  menu_name varchar(200)
+  price decimal(10, 2)
+  status varchar(50)
+  category_id int [ref: > pos_category.category_id]
+  image_url varchar
+}
+
+Table promotion {
+  promotion_id int [pk, increment]
+  promotion_name varchar(200)
+  promotion_detail text
+  start_date date
+  end_date date
+  discount_type varchar(50) [default: 'AMOUNT']
+  discount_value decimal(10, 2) [default: 0]
+  min_quantity int [default: 1]
+  is_active boolean [default: true]
+}
+
+Table promotion_menu {
+  promotion_menu_id int [pk, increment]
+  promotion_id int [ref: > promotion.promotion_id]
+  menu_id int [ref: > menu.menu_id]
+}
+
+Table supplier {
+  supplier_id int [pk, increment]
+  supplier_name varchar(200)
+  contact varchar(255)
+  is_active boolean [default: true]
+}
+
+Table purchase_order {
+  order_id int [pk, increment]
+  po_number varchar(50) [unique]
+  order_date date
+  delivery_date date
+  order_status varchar(50)
+  supplier_id int [ref: > supplier.supplier_id]
+  credit_days int
+  payment_terms varchar(100)
+  subtotal decimal(10, 2)
+  tax_rate decimal(5, 2) [default: 7.00]
+  tax_amount decimal(10, 2)
+  total_amount decimal(10, 2)
+  notes text
+  document_url text
+}
+
+Table purchase_order_item {
+  order_item_id int [pk, increment]
+  order_id int [ref: > purchase_order.order_id]
+  ingredient_id varchar(50) [ref: > ingredient.ingredient_id]
+  quantity int
+  received_quantity int [default: 0]
+  unit_cost decimal(10, 2)
+}
+
+Table sales_round {
+  round_id int [pk, increment]
+  opening_cash decimal(10, 2) [default: 0.00]
+  opened_at timestamp
+  opened_by int [ref: > employee.employee_id]
+  closing_cash decimal(10, 2)
+  closed_at timestamp
+  closed_by int [ref: > employee.employee_id]
+  status varchar(20) [default: 'open']
+  total_sales decimal(10, 2) [default: 0.00]
+  cash_sales decimal(10, 2) [default: 0.00]
+  credit_card_sales decimal(10, 2) [default: 0.00]
+  qr_sales decimal(10, 2) [default: 0.00]
+  total_transactions int [default: 0]
+  expected_cash decimal(10, 2)
+  cash_difference decimal(10, 2) [default: 0.00]
+  notes text
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table sale {
+  sale_id int [pk, increment]
+  sale_datetime timestamptz
+  subtotal decimal(10, 2)
+  discount_amount decimal(10, 2)
+  net_total decimal(10, 2)
+  payment_method varchar(50)
+  employee_id int [ref: > employee.employee_id]
+  member_id int [ref: > member.member_id]
+  promotion_id int [ref: > promotion.promotion_id]
+  cash_received decimal(10, 2)
+  change_amount decimal(10, 2)
+  round_id int [ref: > sales_round.round_id]
+  receipt_number varchar(50) [unique]
+  status varchar(50) [default: 'COMPLETED']
+}
+
+Table sale_item {
+  sale_item_id int [pk, increment]
+  sale_id int [ref: > sale.sale_id]
+  menu_id int [ref: > menu.menu_id]
+  quantity int
+  unit_price decimal(10, 2)
+}
+
+Table sale_item_option {
+  sale_item_option_id int [pk, increment]
+  sale_item_id int [ref: > sale_item.sale_item_id]
+  option_name varchar(100)
+  additional_price decimal(10, 2)
+}
+
+Table point_transaction {
+  transaction_id int [pk, increment]
+  member_id int [ref: > member.member_id]
+  sale_id int [ref: > sale.sale_id]
+  transaction_date timestamp
+  points_change int
+  transaction_type varchar(50)
+  notes text
+}
+
+Table tax_invoice {
+  invoice_id int [pk, increment]
+  invoice_number varchar(50) [unique]
+  sale_id int [ref: > sale.sale_id]
+  invoice_date timestamp
+  customer_name varchar(200)
+  customer_address text
+  customer_tax_id varchar(20)
+  customer_branch varchar(100)
+  store_name varchar(200)
+  store_address text
+  store_tax_id varchar(20)
+  store_phone varchar(20)
+  subtotal decimal(10, 2)
+  vat_rate decimal(5, 2) [default: 7.00]
+  vat_amount decimal(10, 2)
+  total_amount decimal(10, 2)
+  notes text
+  status varchar(20) [default: 'ISSUED']
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table inventory_transaction {
+  transaction_id int [pk, increment]
+  ingredient_id varchar(50) [ref: > ingredient.ingredient_id]
+  transaction_date timestamp
+  transaction_type varchar(50)
+  quantity int
+  reference_id varchar(50)
+  notes text
+  employee_id int [ref: > employee.employee_id]
+}
+
+Table menu_option_group {
+  group_id int [pk, increment]
+  group_name varchar(100)
+  is_active boolean [default: true]
+}
+
+Table menu_option_item {
+  item_id int [pk, increment]
+  group_id int [ref: > menu_option_group.group_id]
+  item_name varchar(100)
+  additional_price decimal(10, 2) [default: 0]
+  is_active boolean [default: true]
+}
+
+Table menu_option_group_menu {
+  menu_id int [pk, ref: > menu.menu_id]
+  group_id int [pk, ref: > menu_option_group.group_id]
+}
